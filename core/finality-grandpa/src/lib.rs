@@ -228,6 +228,8 @@ pub(crate) struct NewAuthoritySet<H, N> {
 pub(crate) enum VoterCommand<H, N> {
 	/// Pause the voter for given reason.
 	Pause(String),
+	/// Resume the voter for given reason.
+	Resume(String),
 	/// New authorities.
 	ChangeAuthorities(NewAuthoritySet<H, N>)
 }
@@ -236,6 +238,7 @@ impl<H, N> fmt::Display for VoterCommand<H, N> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		match *self {
 			VoterCommand::Pause(ref reason) => write!(f, "Pausing voter: {}", reason),
+			VoterCommand::Resume(ref reason) => write!(f, "Resuming voter: {}", reason),
 			VoterCommand::ChangeAuthorities(_) => write!(f, "Changing authorities"),
 		}
 	}
@@ -617,6 +620,7 @@ pub fn run_grandpa_voter<B, E, Block: BlockT<Hash=H256>, N, RA, SC, X>(
 		let select_chain = select_chain.clone();
 		let authority_set = authority_set.clone();
 		let consensus_changes = consensus_changes.clone();
+		let set_state = set_state.clone();
 
 		let handle_voter_command = move |command: VoterCommand<_, _>, voter_commands_rx| {
 			match command {
@@ -635,19 +639,27 @@ pub fn run_grandpa_voter<B, E, Block: BlockT<Hash=H256>, N, RA, SC, X>(
 					// set changed (not where the signal happened!) as the base.
 					let genesis_state = RoundState::genesis((new.canon_hash, new.canon_number));
 
-					let set_state = VoterSetState::Live {
-						// always start at round 0 when changing sets.
-						completed_rounds: CompletedRounds::new(
-							CompletedRound {
-								number: 0,
-								state: genesis_state,
-								base: (new.canon_hash, new.canon_number),
-								votes: Vec::new(),
-							},
-							new.set_id,
-							&*authority_set.inner().read(),
-						),
-						current_round: HasVoted::No,
+					// always start at round 0 when changing sets.
+					let completed_rounds = CompletedRounds::new(
+						CompletedRound {
+							number: 0,
+							state: genesis_state,
+							base: (new.canon_hash, new.canon_number),
+							votes: Vec::new(),
+						},
+						new.set_id,
+						&*authority_set.inner().read(),
+					);
+
+					// keep the existing voter set state status (i.e. live or paused)
+					let set_state = match *set_state.read() {
+						VoterSetState::Live { .. } => VoterSetState::Live::<Block> {
+							current_round: HasVoted::No,
+							completed_rounds,
+						},
+						VoterSetState::Paused { .. } => VoterSetState::Paused {
+							completed_rounds,
+						},
 					};
 
 					#[allow(deprecated)]
@@ -668,9 +680,9 @@ pub fn run_grandpa_voter<B, E, Block: BlockT<Hash=H256>, N, RA, SC, X>(
 					});
 
 					Ok(FutureLoop::Continue((env, voter_commands_rx)))
-				}
+				},
 				VoterCommand::Pause(reason) => {
-					info!(target: "afg", "Pausing old validator set: {}", reason);
+					info!(target: "afg", "Pausing current validator set: {}", reason);
 
 					// not racing because old voter is shut down.
 					env.update_voter_set_state(|voter_set_state| {
@@ -684,6 +696,23 @@ pub fn run_grandpa_voter<B, E, Block: BlockT<Hash=H256>, N, RA, SC, X>(
 
 					Ok(FutureLoop::Continue((env, voter_commands_rx)))
 				},
+				VoterCommand::Resume(reason) => {
+					info!(target: "afg", "Resuming current validator set: {}", reason);
+
+					env.update_voter_set_state(|voter_set_state| {
+						let completed_rounds = voter_set_state.completed_rounds();
+						let set_state = VoterSetState::Live::<Block> {
+							current_round: HasVoted::No,
+							completed_rounds,
+						};
+
+						#[allow(deprecated)]
+						aux_schema::write_voter_set_state(&**client.backend(), &set_state)?;
+						Ok(Some(set_state))
+					})?;
+
+					Ok(FutureLoop::Continue((env, voter_commands_rx)))
+				}
 			}
 		};
 

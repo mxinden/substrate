@@ -209,10 +209,24 @@ pub fn run_grandpa_observer<B, E, Block: BlockT<Hash=H256>, N, RA, SC>(
 			// update it on-disk in case we restart as validator in the future.
 			let set_state = match command {
 				VoterCommand::Pause(reason) => {
-					info!(target: "afg", "Pausing old validator set: {}", reason);
+					info!(target: "afg", "Pausing current validator set: {}", reason);
 
 					let completed_rounds = set_state.read().completed_rounds();
 					let set_state = VoterSetState::Paused { completed_rounds };
+
+					#[allow(deprecated)]
+					crate::aux_schema::write_voter_set_state(&**client.backend(), &set_state)?;
+
+					set_state
+				},
+				VoterCommand::Resume(reason) => {
+					info!(target: "afg", "Resuming current validator set: {}", reason);
+
+					let completed_rounds = set_state.read().completed_rounds();
+					let set_state = VoterSetState::Live::<Block> {
+						current_round: HasVoted::No,
+						completed_rounds,
+					};
 
 					#[allow(deprecated)]
 					crate::aux_schema::write_voter_set_state(&**client.backend(), &set_state)?;
@@ -224,19 +238,27 @@ pub fn run_grandpa_observer<B, E, Block: BlockT<Hash=H256>, N, RA, SC>(
 					// set changed (not where the signal happened!) as the base.
 					let genesis_state = RoundState::genesis((new.canon_hash, new.canon_number));
 
-					let set_state = VoterSetState::Live::<Block> {
-						// always start at round 0 when changing sets.
-						completed_rounds: CompletedRounds::new(
-							CompletedRound {
-								number: 0,
-								state: genesis_state,
-								base: (new.canon_hash, new.canon_number),
-								votes: Vec::new(),
-							},
-							new.set_id,
-							&*authority_set.inner().read(),
-						),
-						current_round: HasVoted::No,
+					// always start at round 0 when changing sets.
+					let completed_rounds = CompletedRounds::new(
+						CompletedRound {
+							number: 0,
+							state: genesis_state,
+							base: (new.canon_hash, new.canon_number),
+							votes: Vec::new(),
+						},
+						new.set_id,
+						&*authority_set.inner().read(),
+					);
+
+					// keep the existing voter set state status (i.e. live or paused)
+					let set_state = match *set_state.read() {
+						VoterSetState::Live { .. } => VoterSetState::Live::<Block> {
+							current_round: HasVoted::No,
+							completed_rounds,
+						},
+						VoterSetState::Paused { .. } => VoterSetState::Paused {
+							completed_rounds,
+						},
 					};
 
 					#[allow(deprecated)]

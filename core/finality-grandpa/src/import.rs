@@ -451,6 +451,10 @@ impl<B, E, Block: BlockT<Hash=H256>, RA, PRA, SC> BlockImport<Block>
 				// then be able to successfully validate).
 				let _ = self.send_voter_commands.unbounded_send(VoterCommand::ChangeAuthorities(new));
 
+				// FIXME: this may not be necessarily correct if we were already paused explicitly
+				let reason = "Resuming voter after pause due to forced set change".to_string();
+				let _ = self.send_voter_commands.unbounded_send(VoterCommand::Resume(reason));
+
 				// we must clear all pending justifications requests, presumably they won't be
 				// finalized hence why this forced changes was triggered
 				imported_aux.clear_justification_requests = true;
