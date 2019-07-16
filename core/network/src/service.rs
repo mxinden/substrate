@@ -25,7 +25,7 @@
 //! The methods of the [`NetworkService`] are implemented by sending a message over a channel,
 //! which is then processed by [`NetworkWorker::poll`].
 
-use std::{collections::HashMap, fs, marker::PhantomData, io, path::Path};
+use std::{collections::{ HashMap, HashSet }, fs, marker::PhantomData, io, path::Path};
 use std::sync::{Arc, atomic::{AtomicBool, AtomicUsize, Ordering}};
 
 use consensus::import_queue::{ImportQueue, Link};
@@ -36,6 +36,7 @@ use libp2p::core::{swarm::NetworkBehaviour, transport::boxed::Boxed, muxing::Str
 use libp2p::{PeerId, Multiaddr, multihash::Multihash};
 use peerset::PeersetHandle;
 use runtime_primitives::{traits::{Block as BlockT, NumberFor}, ConsensusEngineId};
+use parking_lot::Mutex;
 
 use crate::{behaviour::{Behaviour, BehaviourOut}, config::parse_str_addr};
 use crate::{NetworkState, NetworkStateNotConnectedPeer, NetworkStatePeer};
@@ -233,6 +234,7 @@ impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> NetworkWorker
 			import_queue: params.import_queue,
 			from_worker,
 			on_demand_in: params.on_demand.and_then(|od| od.extract_receiver()),
+ 			external_addresses: Arc::new(Mutex::new(HashSet::new())),
 		})
 	}
 
@@ -249,6 +251,12 @@ impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> NetworkWorker
 	/// Returns the number of peers we're connected to.
 	pub fn num_connected_peers(&self) -> usize {
 		self.network_service.user_protocol().num_connected_peers()
+	}
+
+	/// Returns the local external addresses.
+	pub fn external_addresses(&self) -> HashSet<Multiaddr> {
+		let swarm = &self.network_service;
+		Swarm::<B, S, H>::external_addresses(&swarm).cloned().collect()
 	}
 
 	/// Returns the number of peers we're connected to and that are being queried.
@@ -521,6 +529,8 @@ enum ServerToWorkerMsg<B: BlockT, S: NetworkSpecialization<B>> {
 #[must_use = "The NetworkWorker must be polled in order for the network to work"]
 pub struct NetworkWorker<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> {
 	/// Updated by the `NetworkWorker` and loaded by the `NetworkService`.
+	external_addresses: Arc<Mutex<HashSet<Multiaddr>>>,
+	/// Updated by the `NetworkWorker` and loaded by the `NetworkService`.
 	num_connected: Arc<AtomicUsize>,
 	/// Updated by the `NetworkWorker` and loaded by the `NetworkService`.
 	is_major_syncing: Arc<AtomicBool>,
@@ -536,11 +546,11 @@ pub struct NetworkWorker<B: BlockT + 'static, S: NetworkSpecialization<B>, H: Ex
 	on_demand_in: Option<mpsc::UnboundedReceiver<RequestData<B>>>,
 }
 
-impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> Future for NetworkWorker<B, S, H> {
-	type Item = ();
+impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> Stream for NetworkWorker<B, S, H> {
+	type Item = Event;
 	type Error = io::Error;
 
-	fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
 		// Poll the import queue for actions to perform.
 		self.import_queue.poll_actions(&mut NetworkLink {
 			protocol: &mut self.network_service,
@@ -557,7 +567,7 @@ impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> Future for Ne
 			// Process the next message coming from the `NetworkService`.
 			let msg = match self.from_worker.poll() {
 				Ok(Async::Ready(Some(msg))) => msg,
-				Ok(Async::Ready(None)) | Err(_) => return Ok(Async::Ready(())),
+				Ok(Async::Ready(None)) | Err(_) => return Ok(Async::NotReady),
 				Ok(Async::NotReady) => break,
 			};
 
@@ -597,9 +607,12 @@ impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> Future for Ne
 				Ok(Async::NotReady) => break,
 				Ok(Async::Ready(Some(BehaviourOut::SubstrateAction(outcome)))) => outcome,
 				Ok(Async::Ready(Some(BehaviourOut::Dht(ev)))) => {
+					// println!("====== Yeaah we got a Dht message");
+					// println!("====== DhtEvent: {:?}", ev);
 					self.network_service.user_protocol_mut()
-						.on_event(Event::Dht(ev));
-					CustomMessageOutcome::None
+						.on_event(Event::Dht(ev.clone()));
+
+					return Ok(Async::Ready(Some(Event::Dht(ev))));
 				},
 				Ok(Async::Ready(None)) => CustomMessageOutcome::None,
 				Err(err) => {
@@ -621,6 +634,11 @@ impl<B: BlockT + 'static, S: NetworkSpecialization<B>, H: ExHashT> Future for Ne
 
 		// Update the variables shared with the `NetworkService`.
 		self.num_connected.store(self.network_service.user_protocol_mut().num_connected_peers(), Ordering::Relaxed);
+		{
+			let external_addresses = Swarm::<B, S, H>::external_addresses(&self.network_service).cloned().collect();
+			// println!("====== Updating external addresses: {:?}", external_addresses);
+			*self.external_addresses.lock() = external_addresses;
+		}
 		self.is_major_syncing.store(match self.network_service.user_protocol_mut().sync_state() {
 			SyncState::Idle => false,
 			SyncState::Downloading => true,
