@@ -51,6 +51,9 @@ pub type AuraPair = primitives::ed25519::Pair;
 /// Identity of an Aura authority.
 pub type AuraId = primitives::ed25519::Public;
 
+/// Identity of Validator.
+pub type ValidatorId = primitives::sr25519::Public;
+
 /// Signature for an Aura authority.
 pub type AuraSignature = primitives::ed25519::Signature;
 

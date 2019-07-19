@@ -26,7 +26,7 @@ use support::{
 };
 use substrate_primitives::u32_trait::{_1, _2, _3, _4};
 use node_primitives::{
-	AccountId, AccountIndex, AuraId, Balance, BlockNumber, Hash, Index,
+	AccountId, AccountIndex, AuraId, ValidatorId, Balance, BlockNumber, Hash, Index,
 	Moment, Signature,
 };
 use grandpa::fg_primitives::{self, ScheduledChange};
@@ -530,6 +530,12 @@ impl_runtime_apis! {
 		}
 		fn authorities() -> Vec<AuraId> {
 			Aura::authorities()
+		}
+	}
+
+	impl session_primitives::SessionApi<Block,ValidatorId> for Runtime {
+        fn validators() -> Vec<ValidatorId> {
+			Session::validators()
 		}
 	}
 }
