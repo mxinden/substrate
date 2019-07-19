@@ -32,6 +32,7 @@ use std::time::Duration;
 use futures::sync::mpsc;
 use parking_lot::Mutex;
 use libp2p::{ multihash::Multihash, Multiaddr};
+use runtime_primitives::traits::{ProvideRuntimeApi};
 
 use client::{BlockchainEvents, backend::Backend, runtime_api::BlockT};
 use exit_future::Signal;
@@ -627,9 +628,13 @@ fn build_network_future<
 	mut rpc_rx: mpsc::UnboundedReceiver<rpc::apis::system::Request<ComponentBlock<Components>>>,
 	should_have_peers: bool,
 	public_key: String,
-) -> impl Future<Item = (), Error = ()> {
+) -> impl Future<Item = (), Error = ()> where
+	ComponentClient<Components>: ProvideRuntimeApi,
+{
 	// Interval at which we send status updates on the status stream.
 	const STATUS_INTERVAL: Duration = Duration::from_millis(5000);
+
+	client.runtime_api();
 
 	let hashed_public_key = libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, &public_key.as_bytes()).unwrap();
 
