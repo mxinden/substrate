@@ -533,6 +533,7 @@ impl_runtime_apis! {
 		}
 	}
 
+    // TODO: The session trait simply uses AccountId instead of the new type ValidatorId.
 	impl session_primitives::SessionApi<Block,ValidatorId> for Runtime {
         fn validators() -> Vec<ValidatorId> {
 			Session::validators()
