@@ -28,7 +28,7 @@ use node_executor;
 use primitives::Pair;
 use grandpa_primitives::AuthorityPair as GrandpaPair;
 use futures::prelude::*;
-use node_primitives::{AuraPair, Block};
+use node_primitives::{AuraPair, Block,ValidatorId};
 use node_runtime::{GenesisConfig, RuntimeApi};
 use substrate_service::{
 	FactoryFullConfiguration, LightComponents, FullComponents, FullBackend,
@@ -209,6 +209,7 @@ construct_service_factory! {
 		FinalityProofProvider = { |client: Arc<FullClient<Self>>| {
 			Ok(Some(Arc::new(GrandpaFinalityProofProvider::new(client.clone(), client)) as _))
 		}},
+		AuthorityId = ValidatorId,
 	}
 }
 

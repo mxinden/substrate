@@ -26,6 +26,7 @@ use libp2p::{ multihash::Multihash, Multiaddr};
 use parking_lot::Mutex;
 use client::{BlockchainEvents, backend::Backend};
 use futures03::stream::{StreamExt as _, TryStreamExt as _};
+use session_primitives::SessionApi;
 
 use network::{Event, DhtEvent};
 use client_db;
@@ -296,6 +297,7 @@ pub trait TestRuntime<C: Components> {
 impl<C: Components> TestRuntime<Self> for C where
 	ComponentClient<C>: ProvideRuntimeApi,
 	<ComponentClient<C> as ProvideRuntimeApi>::Api: runtime_api::Metadata<ComponentBlock<C>>,
+	<ComponentClient<C> as ProvideRuntimeApi>::Api: session_primitives::SessionApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId>,
 {
 	  fn test_runtime<
 	          H: network::ExHashT,
@@ -311,7 +313,8 @@ impl<C: Components> TestRuntime<Self> for C where
 	// Interval at which we send status updates on the status stream.
 	const STATUS_INTERVAL: Duration = Duration::from_millis(5000);
 
-		  client.runtime_api().validators();
+		  let id = BlockId::hash( client.info().chain.best_hash);
+		  client.runtime_api().validators(&id);
 
 
 	let hashed_public_key = libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, &public_key.as_bytes()).unwrap();
@@ -476,6 +479,8 @@ pub trait ServiceFactory: 'static + Sized {
 	type LightImportQueue: ImportQueue<Self::Block> + 'static;
 	/// The Fork Choice Strategy for the chain
 	type SelectChain: SelectChain<Self::Block> + 'static;
+	///
+	type AuthorityId: parity_codec::Codec;
 
 	//TODO: replace these with a constructor trait. that TransactionPool implements. (#1242)
 	/// Extrinsic pool constructor for the full client.

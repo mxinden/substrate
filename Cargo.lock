@@ -4755,6 +4755,7 @@ dependencies = [
  "substrate-offchain 2.0.0",
  "substrate-primitives 2.0.0",
  "substrate-rpc-servers 2.0.0",
+ "substrate-session-primitives 2.0.0",
  "substrate-telemetry 2.0.0",
  "substrate-test-runtime-client 2.0.0",
  "substrate-transaction-pool 2.0.0",
