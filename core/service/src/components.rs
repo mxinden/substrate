@@ -27,6 +27,7 @@ use parking_lot::Mutex;
 use client::{BlockchainEvents};
 use futures03::stream::{StreamExt as _, TryStreamExt as _};
 use session_primitives::SessionApi;
+use consensus_aura_primitives::AuraApi;
 
 use network::{Event, DhtEvent};
 use client_db;
@@ -45,6 +46,7 @@ use crate::config::Configuration;
 use primitives::{Blake2Hasher, H256, Pair};
 use rpc::{self, apis::system::SystemInfo};
 use futures::{prelude::*, future::Executor, sync::mpsc};
+use runtime_api::KeyTypeGetter;
 
 // Type aliases.
 // These exist mainly to avoid typing `<F as Factory>::Foo` all over the code.
@@ -297,7 +299,9 @@ pub trait TestRuntime<C: Components> {
 impl<C: Components> TestRuntime<Self> for C where
 	ComponentClient<C>: ProvideRuntimeApi,
 	<ComponentClient<C> as ProvideRuntimeApi>::Api: runtime_api::Metadata<ComponentBlock<C>>,
-	<ComponentClient<C> as ProvideRuntimeApi>::Api: session_primitives::SessionApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId>,
+    <ComponentClient<C> as ProvideRuntimeApi>::Api: runtime_api::KeyTypeGetter<ComponentBlock<C>>,
+	// <ComponentClient<C> as ProvideRuntimeApi>::Api: session_primitives::SessionApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId>,
+<ComponentClient<C> as ProvideRuntimeApi>::Api: consensus_aura_primitives::AuraApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId>,
 {
 	fn test_runtime<
 			H: network::ExHashT,
@@ -305,7 +309,7 @@ impl<C: Components> TestRuntime<Self> for C where
 		>(
 		mut network: network::NetworkWorker<ComponentBlock<C>,  S, H>,
 		client: Arc<ComponentClient<C>>,
-		mut status_sinks: Arc<Mutex<Vec<mpsc::UnboundedSender<(NetworkStatus<ComponentBlock<C>>, NetworkState)>>>>,
+		status_sinks: Arc<Mutex<Vec<mpsc::UnboundedSender<(NetworkStatus<ComponentBlock<C>>, NetworkState)>>>>,
 		mut rpc_rx: mpsc::UnboundedReceiver<rpc::apis::system::Request<ComponentBlock<C>>>,
 		should_have_peers: bool,
 		public_key: String,
@@ -345,7 +349,11 @@ impl<C: Components> TestRuntime<Self> for C where
 				network.service().put_value(hashed_public_key.clone(), serialized_addresses.as_bytes().to_vec());
 
 				let id = BlockId::hash( client.info().chain.best_hash);
-				println!("=== validators: {:?}", client.runtime_api().validators(&id));
+				// TODO: These seem to be stash keys, not public keys.
+				println!("=== validators: {:?}", client.runtime_api().authorities(&id));
+
+				// TODO: Remove.
+				println!("==== KeyTypeId: {:?}", client.runtime_api().get_key_type(&id));
 
 				// TODO: Let's trigger a search for us for now. Remove.
 				network.service().get_value(&hashed_public_key.clone());

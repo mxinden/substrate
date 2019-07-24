@@ -44,7 +44,7 @@ use keystore::Store as Keystore;
 use network::{NetworkState, NetworkStateInfo};
 use log::{log, info, warn, debug, error, Level};
 use parity_codec::{Encode, Decode};
-use primitives::{Pair, ed25519, crypto};
+use primitives::{Pair, ed25519, crypto, sr25519};
 use runtime_primitives::generic::BlockId;
 use runtime_primitives::traits::{Header, NumberFor, SaturatedConversion, Zero};
 use substrate_executor::NativeExecutor;
@@ -195,6 +195,7 @@ impl<Components: components::Components> Service<Components> {
 		// FIXME #1063 remove this
 		if let Some(keystore) = keystore.as_mut() {
 			for seed in &config.keys {
+				println!("==== seed: {}", seed);
 				keystore.generate_from_seed::<ed25519::Pair>(seed)?;
 			}
 
@@ -206,7 +207,14 @@ impl<Components: components::Components> Service<Components> {
 					info!("Generated a new keypair: {:?}", public_key);
 					public_key.to_string()
 				}
-			}
+			};
+
+			match keystore.contents::<sr25519::Public>()?.get(0) {
+				Some(public_key) => println!("====== Second public key: {}", public_key.to_string()),
+				None => {
+					println!("======= no second public key");
+				}
+			};
 		} else {
 			public_key = format!("<disabled-keystore>");
 		}

@@ -86,6 +86,7 @@ impl Store {
 
 	/// Generate a new key, placing it into the store.
 	pub fn generate<TPair: Pair>(&self, password: &str) -> Result<TPair> {
+		println!("==== generating a new key inside keystore, password: {}", password);
 		let (pair, phrase, _) = TPair::generate_with_phrase(Some(password));
 		let mut file = File::create(self.key_file_path::<TPair>(&pair.public()))?;
 		::serde_json::to_writer(&file, &phrase)?;
@@ -95,6 +96,7 @@ impl Store {
 
 	/// Create a new key from seed. Do not place it into the store.
 	pub fn generate_from_seed<TPair: Pair>(&mut self, seed: &str) -> Result<TPair> {
+		println!("==== generating a new key inside keystore from seed: {}", seed);
 		let pair = TPair::from_string(seed, None)
 			.ok().ok_or(Error::InvalidSeed)?;
 		self.insert_pair(&pair);

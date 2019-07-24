@@ -26,7 +26,7 @@ use support::{
 };
 use substrate_primitives::u32_trait::{_1, _2, _3, _4};
 use node_primitives::{
-	AccountId, AccountIndex, AuraId, ValidatorId, Balance, BlockNumber, Hash, Index,
+	AccountId, AccountIndex, AuraId, Balance, BlockNumber, Hash, Index,
 	Moment, Signature,
 };
 use grandpa::fg_primitives::{self, ScheduledChange};
@@ -500,6 +500,12 @@ impl_runtime_apis! {
 		}
 	}
 
+	impl client_api::KeyTypeGetter<Block> for Runtime {
+		fn get_key_type() -> substrate_primitives::crypto::KeyTypeId {
+			substrate_primitives::crypto::key_types::ED25519
+		}
+	}
+
 	impl offchain_primitives::OffchainWorkerApi<Block> for Runtime {
 		fn offchain_worker(number: NumberFor<Block>) {
 			Executive::offchain_worker(number)
@@ -533,9 +539,8 @@ impl_runtime_apis! {
 		}
 	}
 
-    // TODO: The session trait simply uses AccountId instead of the new type ValidatorId.
-	impl session_primitives::SessionApi<Block,ValidatorId> for Runtime {
-        fn validators() -> Vec<ValidatorId> {
+	impl session_primitives::SessionApi<Block, AccountId> for Runtime {
+        fn validators() -> Vec<AccountId> {
 			Session::validators()
 		}
 	}
