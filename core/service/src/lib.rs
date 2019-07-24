@@ -446,6 +446,7 @@ impl<Components: components::Components> Service<Components> {
 			has_bootnodes,
 			// TODO: Public key might be <disabled-keystore>, handle that!
 			public_key.clone(),
+			keystore_authority_key.clone(),
 		)
 			.map_err(|_| ())
 			.select(exit.clone())

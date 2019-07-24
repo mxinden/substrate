@@ -153,6 +153,38 @@ impl Store {
 		Ok(public_keys)
 	}
 
+	// // TODO: This function duplicates most of the logic of contents(). Can they share logic?
+	// pub fn contents_by_type_id(&self, id: KeyTypeId) -> Result<Vec<Vec<u8>>> {
+	// 	let mut public_keys: Vec<Vec<u8>> = self.additional.keys()
+	// 		.filter_map(|(ty, public)| {
+	// 			if *ty != id {
+	// 				return None
+	// 			}
+	// 			Some(public.to_vec())
+	// 		})
+	// 		.collect();
+
+	// 	let key_type: [u8; 4] = id.to_le_bytes();
+	// 	for entry in fs::read_dir(&self.path)? {
+	// 		let entry = entry?;
+	// 		let path = entry.path();
+
+	// 		// skip directories and non-unicode file names (hex is unicode)
+	// 		if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+	// 			match hex::decode(name) {
+	// 				Ok(ref hex) => {
+	// 					if hex[0..4] != key_type { continue	}
+	// 					let public = &hex[4..];
+	// 					public_keys.push(public.to_vec());
+	// 				}
+	// 				_ => continue,
+	// 			}
+	// 		}
+	// 	}
+
+	// 	Ok(public_keys)
+	// }
+
 	fn key_file_path<TPair: Pair>(&self, public: &TPair::Public) -> PathBuf {
 		let mut buf = self.path.clone();
 		let bytes: [u8; 4] = TPair::KEY_TYPE.to_le_bytes();

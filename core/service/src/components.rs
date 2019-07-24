@@ -28,6 +28,7 @@ use client::{BlockchainEvents};
 use futures03::stream::{StreamExt as _, TryStreamExt as _};
 use session_primitives::SessionApi;
 use consensus_aura_primitives::AuraApi;
+use offchain::AuthorityKeyProvider as _;
 
 use network::{Event, DhtEvent};
 use client_db;
@@ -43,7 +44,7 @@ use runtime_primitives::{
 
 use network::NetworkState;
 use crate::config::Configuration;
-use primitives::{Blake2Hasher, H256, Pair};
+use primitives::{Blake2Hasher, H256, Pair, Public};
 use rpc::{self, apis::system::SystemInfo};
 use futures::{prelude::*, future::Executor, sync::mpsc};
 use runtime_api::KeyTypeGetter;
@@ -292,7 +293,9 @@ pub trait TestRuntime<C: Components> {
 		status_sinks: Arc<Mutex<Vec<mpsc::UnboundedSender<(NetworkStatus<ComponentBlock<C>>, NetworkState)>>>>,
 		rpc_rx: mpsc::UnboundedReceiver<rpc::apis::system::Request<ComponentBlock<C>>>,
 		should_have_peers: bool,
+		// TODO: still needed?
 		public_key: String,
+		keystore: ComponentAuthorityKeyProvider<C>,
 	)-> Box<dyn Future<Item = (), Error = ()>+ Send>  ;
 }
 
@@ -302,6 +305,7 @@ impl<C: Components> TestRuntime<Self> for C where
     <ComponentClient<C> as ProvideRuntimeApi>::Api: runtime_api::KeyTypeGetter<ComponentBlock<C>>,
 	// <ComponentClient<C> as ProvideRuntimeApi>::Api: session_primitives::SessionApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId>,
 <ComponentClient<C> as ProvideRuntimeApi>::Api: consensus_aura_primitives::AuraApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId>,
+<<<C as Components>::Factory as ServiceFactory>::ConsensusPair as primitives::crypto::Pair>::Public : std::string::ToString
 {
 	fn test_runtime<
 			H: network::ExHashT,
@@ -313,6 +317,7 @@ impl<C: Components> TestRuntime<Self> for C where
 		mut rpc_rx: mpsc::UnboundedReceiver<rpc::apis::system::Request<ComponentBlock<C>>>,
 		should_have_peers: bool,
 		public_key: String,
+		keystore: ComponentAuthorityKeyProvider<C>,
 	)-> Box<dyn Future<Item = (), Error = ()> + Send>  {
 		// Interval at which we send status updates on the status stream.
 		const STATUS_INTERVAL: Duration = Duration::from_millis(5000);
@@ -353,7 +358,9 @@ impl<C: Components> TestRuntime<Self> for C where
 				println!("=== validators: {:?}", client.runtime_api().authorities(&id));
 
 				// TODO: Remove.
-				println!("==== KeyTypeId: {:?}", client.runtime_api().get_key_type(&id));
+				// println!("==== KeyTypeId: {}", client.runtime_api().get_key_type(&id));
+
+				println!("=== authority key: {}", keystore.authority_key( &id).map(|k| k.public().to_string()).unwrap());
 
 				// TODO: Let's trigger a search for us for now. Remove.
 				network.service().get_value(&hashed_public_key.clone());
