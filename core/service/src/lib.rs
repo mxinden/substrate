@@ -21,6 +21,7 @@
 
 mod components;
 mod chain_spec;
+mod network_future;
 pub mod config;
 pub mod chain_ops;
 pub mod error;
@@ -32,7 +33,7 @@ use std::collections::HashMap;
 use futures::sync::mpsc;
 use parking_lot::Mutex;
 use client::{self};
-use crate::components::NetworkFutureBuilder;
+use crate::network_future::NetworkFutureBuilder;
 
 use client::{BlockchainEvents, backend::Backend, runtime_api::BlockT};
 use exit_future::Signal;
