@@ -1,0 +1,14 @@
+[package]
+name = "substrate-validator-discovery"
+version = "2.0.0"
+authors = ["Parity Technologies <admin@parity.io>"]
+edition = "2018"
+
+[dependencies]
+network = { package = "substrate-network", path = "../../core/network" }
+sr-primitives = { path = "../../core/sr-primitives" }
+client = { package = "substrate-client", path = "../../core/client" }
+consensus_common_primitives = { package = "substrate-consensus-common-primitives", path = "../../core/consensus/common/primitives", default-features = false }
+parity-codec = "4.1.1"
+
+[dev-dependencies]

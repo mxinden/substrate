@@ -31,6 +31,7 @@ client = { package = "substrate-client", path = "../../core/client" }
 client_db = { package = "substrate-client-db", path = "../../core/client/db", features = ["kvdb-rocksdb"] }
 codec = { package = "parity-scale-codec", version = "1.0.0" }
 substrate-executor = { path = "../../core/executor" }
+substrate-validator-discovery = { path = "../../core/validator-discovery"}
 transaction_pool = { package = "substrate-transaction-pool", path = "../../core/transaction-pool" }
 rpc = { package = "substrate-rpc-servers", path = "../../core/rpc-servers" }
 tel = { package = "substrate-telemetry", path = "../../core/telemetry" }

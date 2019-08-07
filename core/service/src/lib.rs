@@ -45,6 +45,7 @@ use sr_primitives::traits::{Header, NumberFor, SaturatedConversion};
 use substrate_executor::NativeExecutor;
 use sysinfo::{get_current_pid, ProcessExt, System, SystemExt};
 use tel::{telemetry, SUBSTRATE_INFO};
+use substrate_validator_discovery::ValidatorDiscovery;
 
 pub use self::error::Error;
 pub use config::{Configuration, Roles, PruningMode};
@@ -229,6 +230,8 @@ impl<Components: components::Components> Service<Components> {
 		let network_mut = network::NetworkWorker::new(network_params)?;
 		let network = network_mut.service().clone();
 		let network_status_sinks = Arc::new(Mutex::new(Vec::new()));
+
+		let validator_discovery = ValidatorDiscovery::new(client.clone(), network.clone());
 
 		#[allow(deprecated)]
 		let offchain_storage = client.backend().offchain_storage();
