@@ -4279,6 +4279,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "substrate-authority-discovery"
+version = "2.0.0"
+dependencies = [
+ "derive_more 0.14.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures 0.1.28 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libp2p 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "parity-scale-codec 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde_json 1.0.40 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sr-primitives 2.0.0",
+ "substrate-authority-discovery-primitives 2.0.0",
+ "substrate-client 2.0.0",
+ "substrate-keystore 2.0.0",
+ "substrate-network 2.0.0",
+ "substrate-primitives 2.0.0",
+ "tokio-timer 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "substrate-authority-discovery-primitives"
 version = "2.0.0"
 dependencies = [
@@ -4909,6 +4928,8 @@ dependencies = [
  "sr-io 2.0.0",
  "sr-primitives 2.0.0",
  "substrate-application-crypto 2.0.0",
+ "substrate-authority-discovery 2.0.0",
+ "substrate-authority-discovery-primitives 2.0.0",
  "substrate-client 2.0.0",
  "substrate-client-db 2.0.0",
  "substrate-consensus-babe-primitives 2.0.0",

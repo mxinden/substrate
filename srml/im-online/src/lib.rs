@@ -235,6 +235,56 @@ impl<T: Trait> Module<T> {
 		<ReceivedHeartbeats>::exists(&current_session, &authority_index)
 	}
 
+	pub fn public_key() -> Option<AuthorityId> {
+		let authorities = Keys::get();
+		let mut local_keys = app::Public::all();
+		local_keys.sort();
+
+		// TODO: authority_index is not needed, refactor!
+		for (_authority_index, key) in authorities.into_iter()
+			.enumerate()
+			.filter_map(|(index, authority)| {
+				local_keys.binary_search(&authority)
+					.ok()
+					.map(|location| (index as u32, &local_keys[location]))
+			}) {
+
+				return Some(key.clone());
+			}
+		return None;
+	}
+
+	pub fn authorities() -> Vec<AuthorityId> {
+		Keys::get()
+	}
+
+	pub fn sign(payload: Vec<u8>) -> Option<Vec<u8>> {
+		let authorities = Keys::get();
+		let mut local_keys = app::Public::all();
+		local_keys.sort();
+
+		for (_authority_index, key) in authorities.into_iter()
+			.enumerate()
+			.filter_map(|(index, authority)| {
+				local_keys.binary_search(&authority)
+					.ok()
+					.map(|location| (index as u32, &local_keys[location]))
+			})
+		{
+			return key.sign(&payload).map(|s| s.encode())
+		}
+
+		return None
+	}
+
+	pub fn verify(payload: Vec<u8>, signature: Vec<u8>, public_key: AuthorityId) -> bool {
+		let sig: Result<AuthoritySignature, _> = Decode::decode(&mut &signature[..]);
+		match sig {
+			Ok(sig) => public_key.verify(&payload, &sig),
+			Err(_e) => false,
+		}
+	}
+
 	fn offchain(now: T::BlockNumber) {
 		let next_gossip = <GossipAt<T>>::get();
 		let check = Self::check_not_yet_gossipped(now, next_gossip);
@@ -243,7 +293,7 @@ impl<T: Trait> Module<T> {
 			Err(err) => {
 				print(err);
 				return;
-			},
+			}
 		};
 		if next_gossip < now && not_yet_gossipped {
 			let value_set = Self::compare_and_set_worker_status(now, false, curr_worker_status);

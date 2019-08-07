@@ -38,7 +38,7 @@ use exit_future::Signal;
 use futures::prelude::*;
 use futures03::stream::{StreamExt as _, TryStreamExt as _};
 use keystore::Store as Keystore;
-use network::{NetworkState, NetworkStateInfo};
+use network::{NetworkState, NetworkStateInfo, Event, DhtEvent};
 use log::{log, info, warn, debug, error, Level};
 use codec::{Encode, Decode};
 use sr_primitives::generic::BlockId;
@@ -46,6 +46,7 @@ use sr_primitives::traits::{Header, NumberFor, SaturatedConversion};
 use substrate_executor::NativeExecutor;
 use sysinfo::{get_current_pid, ProcessExt, System, SystemExt};
 use tel::{telemetry, SUBSTRATE_INFO};
+use crate::components::AuthorityDiscovery;
 
 pub use self::error::Error;
 pub use config::{Configuration, Roles, PruningMode};
@@ -390,12 +391,22 @@ impl<Components: components::Components> Service<Components> {
 		let rpc_handlers = gen_handler();
 		let rpc = start_rpc_servers(&config, gen_handler)?;
 
+		let (dht_event_tx, dht_event_rx) =
+			mpsc::unbounded::<DhtEvent>();
+		let authority_discovery = Components::RuntimeServices::authority_discovery(
+			client.clone(),
+			network.clone(),
+			dht_event_rx,
+		);
+		let _ = to_spawn_tx.unbounded_send(authority_discovery);
+
 		let _ = to_spawn_tx.unbounded_send(Box::new(build_network_future(
 			network_mut,
 			client.clone(),
 			network_status_sinks.clone(),
 			system_rpc_rx,
-			has_bootnodes
+			has_bootnodes,
+			dht_event_tx,
 		)
 			.map_err(|_| ())
 			.select(exit.clone())
@@ -631,6 +642,7 @@ fn build_network_future<
 	status_sinks: Arc<Mutex<Vec<mpsc::UnboundedSender<(NetworkStatus<B>, NetworkState)>>>>,
 	rpc_rx: futures03::channel::mpsc::UnboundedReceiver<rpc::apis::system::Request<B>>,
 	should_have_peers: bool,
+	dht_events_tx: mpsc::UnboundedSender<DhtEvent>,
 ) -> impl Future<Item = (), Error = ()> {
 	// Compatibility shim while we're transitionning to stable Futures.
 	// See https://github.com/paritytech/substrate/issues/3099
@@ -706,11 +718,11 @@ fn build_network_future<
 		}
 
 		// Main network polling.
-		match network.poll() {
-			Ok(Async::NotReady) => {}
-			Err(err) => warn!(target: "service", "Error in network: {:?}", err),
-			Ok(Async::Ready(())) => warn!(target: "service", "Network service finished"),
-		}
+		while let Ok(Async::Ready(Some(Event::Dht(event)))) = network.poll().map_err(|err| {
+			warn!(target: "service", "Error in network: {:?}", err);
+		}) {
+			dht_events_tx.unbounded_send(event.clone()).unwrap();
+		};
 
 		// Now some diagnostic for performances.
 		let polling_dur = before_polling.elapsed();
@@ -1014,6 +1026,7 @@ macro_rules! construct_service_factory {
 			SelectChain = $select_chain:ty
 				{ $( $select_chain_init:tt )* },
 			FinalityProofProvider = { $( $finality_proof_provider_init:tt )* },
+			AuthorityId = $authority_id:ty,
 		}
 	) => {
 		$( #[$attr] )*
@@ -1034,6 +1047,7 @@ macro_rules! construct_service_factory {
 			type FullImportQueue = $full_import_queue;
 			type LightImportQueue = $light_import_queue;
 			type SelectChain = $select_chain;
+ 			type AuthorityId = $authority_id;
 
 			fn build_full_transaction_pool(
 				config: $crate::TransactionPoolOptions,

@@ -1,4 +1,4 @@
-// Copyright 2017-2019 Parity Technologies (UK) Ltd.
+// Copyright 2019 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
 // Substrate is free software: you can redistribute it and/or modify
@@ -16,36 +16,39 @@
 
 //! Substrate service components.
 
-use std::{sync::Arc, ops::Deref, ops::DerefMut};
-use serde::{Serialize, de::DeserializeOwned};
 use crate::chain_spec::ChainSpec;
-use keystore::KeyStorePtr;
-use client_db;
-use client::{self, Client, runtime_api};
-use crate::{error, Service};
-use consensus_common::{import_queue::ImportQueue, SelectChain};
-use network::{
-	self, OnDemand, FinalityProofProvider, NetworkStateInfo, config::BoxFinalityProofRequestBuilder
-};
-use substrate_executor::{NativeExecutor, NativeExecutionDispatch};
-use transaction_pool::txpool::{self, Options as TransactionPoolOptions, Pool as TransactionPool};
-use sr_primitives::{
-	BuildStorage, traits::{Block as BlockT, Header as HeaderT, ProvideRuntimeApi}, generic::BlockId
-};
 use crate::config::Configuration;
-use primitives::{Blake2Hasher, H256, traits::BareCryptoStorePtr};
+use crate::{error, Service};
+use client::{self, runtime_api, Client};
+use client_db;
+use consensus_common::{import_queue::ImportQueue, SelectChain};
+use authority_discovery_primitives::AuthorityDiscoveryApi;
+use futures::{future::Executor, prelude::*};
+use futures03::{channel::mpsc, compat::Compat, FutureExt as _};
+use keystore::KeyStorePtr;
+use network::{
+    self, config::BoxFinalityProofRequestBuilder, FinalityProofProvider, NetworkStateInfo, OnDemand, DhtEvent,
+};
+use primitives::{traits::BareCryptoStorePtr, Blake2Hasher, H256};
 use rpc::{self, apis::system::SystemInfo};
-use futures::{prelude::*, future::Executor};
-use futures03::{FutureExt as _, channel::mpsc, compat::Compat};
+use serde::{de::DeserializeOwned, Serialize};
+use sr_primitives::{
+    generic::BlockId,
+    traits::{Block as BlockT, Header as HeaderT, ProvideRuntimeApi},
+    BuildStorage,
+};
+use std::{ops::Deref, ops::DerefMut, sync::Arc};
+use substrate_executor::{NativeExecutionDispatch, NativeExecutor};
+use transaction_pool::txpool::{self, Options as TransactionPoolOptions, Pool as TransactionPool};
 
 // Type aliases.
 // These exist mainly to avoid typing `<F as Factory>::Foo` all over the code.
 
 /// Network service type for `Components`.
 pub type NetworkService<C> = network::NetworkService<
-	ComponentBlock<C>,
-	<<C as Components>::Factory as ServiceFactory>::NetworkProtocol,
-	ComponentExHash<C>
+    ComponentBlock<C>,
+    <<C as Components>::Factory as ServiceFactory>::NetworkProtocol,
+    ComponentExHash<C>,
 >;
 
 /// Code executor type for a factory.
@@ -55,48 +58,56 @@ pub type CodeExecutor<F> = NativeExecutor<<F as ServiceFactory>::RuntimeDispatch
 pub type FullBackend<F> = client_db::Backend<<F as ServiceFactory>::Block>;
 
 /// Full client executor type for a factory.
-pub type FullExecutor<F> = client::LocalCallExecutor<
-	client_db::Backend<<F as ServiceFactory>::Block>,
-	CodeExecutor<F>,
->;
+pub type FullExecutor<F> =
+    client::LocalCallExecutor<client_db::Backend<<F as ServiceFactory>::Block>, CodeExecutor<F>>;
 
 /// Light client backend type for a factory.
 pub type LightBackend<F> = client::light::backend::Backend<
-	client_db::light::LightStorage<<F as ServiceFactory>::Block>,
-	network::OnDemand<<F as ServiceFactory>::Block>,
-	Blake2Hasher,
+    client_db::light::LightStorage<<F as ServiceFactory>::Block>,
+    network::OnDemand<<F as ServiceFactory>::Block>,
+    Blake2Hasher,
 >;
 
 /// Light client executor type for a factory.
 pub type LightExecutor<F> = client::light::call_executor::RemoteOrLocalCallExecutor<
-	<F as ServiceFactory>::Block,
-	client::light::backend::Backend<
-		client_db::light::LightStorage<<F as ServiceFactory>::Block>,
-		network::OnDemand<<F as ServiceFactory>::Block>,
-		Blake2Hasher
-	>,
-	client::light::call_executor::RemoteCallExecutor<
-		client::light::blockchain::Blockchain<
-			client_db::light::LightStorage<<F as ServiceFactory>::Block>,
-			network::OnDemand<<F as ServiceFactory>::Block>
-		>,
-		network::OnDemand<<F as ServiceFactory>::Block>,
-	>,
-	client::LocalCallExecutor<
-		client::light::backend::Backend<
-			client_db::light::LightStorage<<F as ServiceFactory>::Block>,
-			network::OnDemand<<F as ServiceFactory>::Block>,
-			Blake2Hasher
-		>,
-		CodeExecutor<F>
-	>
+    <F as ServiceFactory>::Block,
+    client::light::backend::Backend<
+        client_db::light::LightStorage<<F as ServiceFactory>::Block>,
+        network::OnDemand<<F as ServiceFactory>::Block>,
+        Blake2Hasher,
+    >,
+    client::light::call_executor::RemoteCallExecutor<
+        client::light::blockchain::Blockchain<
+            client_db::light::LightStorage<<F as ServiceFactory>::Block>,
+            network::OnDemand<<F as ServiceFactory>::Block>,
+        >,
+        network::OnDemand<<F as ServiceFactory>::Block>,
+    >,
+    client::LocalCallExecutor<
+        client::light::backend::Backend<
+            client_db::light::LightStorage<<F as ServiceFactory>::Block>,
+            network::OnDemand<<F as ServiceFactory>::Block>,
+            Blake2Hasher,
+        >,
+        CodeExecutor<F>,
+    >,
 >;
 
 /// Full client type for a factory.
-pub type FullClient<F> = Client<FullBackend<F>, FullExecutor<F>, <F as ServiceFactory>::Block, <F as ServiceFactory>::RuntimeApi>;
+pub type FullClient<F> = Client<
+    FullBackend<F>,
+    FullExecutor<F>,
+    <F as ServiceFactory>::Block,
+    <F as ServiceFactory>::RuntimeApi,
+>;
 
 /// Light client type for a factory.
-pub type LightClient<F> = Client<LightBackend<F>, LightExecutor<F>, <F as ServiceFactory>::Block, <F as ServiceFactory>::RuntimeApi>;
+pub type LightClient<F> = Client<
+    LightBackend<F>,
+    LightExecutor<F>,
+    <F as ServiceFactory>::Block,
+    <F as ServiceFactory>::RuntimeApi,
+>;
 
 /// `ChainSpec` specialization for a factory.
 pub type FactoryChainSpec<F> = ChainSpec<<F as ServiceFactory>::Genesis>;
@@ -114,20 +125,22 @@ pub type FactoryExtrinsic<F> = <<F as ServiceFactory>::Block as BlockT>::Extrins
 pub type FactoryBlockNumber<F> = <<FactoryBlock<F> as BlockT>::Header as HeaderT>::Number;
 
 /// Full `Configuration` type for a factory.
-pub type FactoryFullConfiguration<F> = Configuration<<F as ServiceFactory>::Configuration, FactoryGenesis<F>>;
+pub type FactoryFullConfiguration<F> =
+    Configuration<<F as ServiceFactory>::Configuration, FactoryGenesis<F>>;
 
 /// Client type for `Components`.
 pub type ComponentClient<C> = Client<
-	<C as Components>::Backend,
-	<C as Components>::Executor,
-	FactoryBlock<<C as Components>::Factory>,
-	<C as Components>::RuntimeApi,
+    <C as Components>::Backend,
+    <C as Components>::Executor,
+    FactoryBlock<<C as Components>::Factory>,
+    <C as Components>::RuntimeApi,
 >;
 
 /// A offchain workers storage backend type.
-pub type ComponentOffchainStorage<C> = <
-	<C as Components>::Backend as client::backend::Backend<ComponentBlock<C>, Blake2Hasher>
->::OffchainStorage;
+pub type ComponentOffchainStorage<C> = <<C as Components>::Backend as client::backend::Backend<
+    ComponentBlock<C>,
+    Blake2Hasher,
+>>::OffchainStorage;
 
 /// Block type for `Components`
 pub type ComponentBlock<C> = <<C as Components>::Factory as ServiceFactory>::Block;
@@ -155,9 +168,10 @@ pub trait InitialSessionKeys<C: Components> {
 	) -> error::Result<()>;
 }
 
-impl<C: Components> InitialSessionKeys<Self> for C where
-	ComponentClient<C>: ProvideRuntimeApi,
-	<ComponentClient<C> as ProvideRuntimeApi>::Api: session::SessionKeys<ComponentBlock<C>>,
+impl<C: Components> InitialSessionKeys<Self> for C
+where
+    ComponentClient<C>: ProvideRuntimeApi,
+    <ComponentClient<C> as ProvideRuntimeApi>::Api: session::SessionKeys<ComponentBlock<C>>,
 {
 	fn generate_initial_session_keys(
 		client: Arc<ComponentClient<C>>,
@@ -169,94 +183,128 @@ impl<C: Components> InitialSessionKeys<Self> for C where
 
 /// Something that can start the RPC service.
 pub trait StartRPC<C: Components> {
-	fn start_rpc(
-		client: Arc<ComponentClient<C>>,
-		system_send_back: mpsc::UnboundedSender<rpc::apis::system::Request<ComponentBlock<C>>>,
-		system_info: SystemInfo,
-		task_executor: TaskExecutor,
-		transaction_pool: Arc<TransactionPool<C::TransactionPoolApi>>,
-		keystore: KeyStorePtr,
-	) -> rpc::RpcHandler;
+    fn start_rpc(
+        client: Arc<ComponentClient<C>>,
+        system_send_back: mpsc::UnboundedSender<rpc::apis::system::Request<ComponentBlock<C>>>,
+        system_info: SystemInfo,
+        task_executor: TaskExecutor,
+        transaction_pool: Arc<TransactionPool<C::TransactionPoolApi>>,
+        keystore: KeyStorePtr,
+    ) -> rpc::RpcHandler;
 }
 
-impl<C: Components> StartRPC<Self> for C where
-	ComponentClient<C>: ProvideRuntimeApi,
-	<ComponentClient<C> as ProvideRuntimeApi>::Api:
-		runtime_api::Metadata<ComponentBlock<C>> + session::SessionKeys<ComponentBlock<C>>,
+impl<C: Components> StartRPC<Self> for C
+where
+    ComponentClient<C>: ProvideRuntimeApi,
+    <ComponentClient<C> as ProvideRuntimeApi>::Api:
+        runtime_api::Metadata<ComponentBlock<C>> + session::SessionKeys<ComponentBlock<C>>,
 {
-	fn start_rpc(
-		client: Arc<ComponentClient<C>>,
-		system_send_back: mpsc::UnboundedSender<rpc::apis::system::Request<ComponentBlock<C>>>,
-		rpc_system_info: SystemInfo,
-		task_executor: TaskExecutor,
-		transaction_pool: Arc<TransactionPool<C::TransactionPoolApi>>,
-		keystore: KeyStorePtr,
-	) -> rpc::RpcHandler {
-		let subscriptions = rpc::apis::Subscriptions::new(task_executor.clone());
-		let chain = rpc::apis::chain::Chain::new(client.clone(), subscriptions.clone());
-		let state = rpc::apis::state::State::new(client.clone(), subscriptions.clone());
-		let author = rpc::apis::author::Author::new(
-			client,
-			transaction_pool,
-			subscriptions,
-			keystore,
-		);
-		let system = rpc::apis::system::System::new(rpc_system_info, system_send_back);
-		rpc::rpc_handler::<ComponentBlock<C>, ComponentExHash<C>, _, _, _, _>(
-			state,
-			chain,
-			author,
-			system,
-		)
-	}
+    fn start_rpc(
+        client: Arc<ComponentClient<C>>,
+        system_send_back: mpsc::UnboundedSender<rpc::apis::system::Request<ComponentBlock<C>>>,
+        rpc_system_info: SystemInfo,
+        task_executor: TaskExecutor,
+        transaction_pool: Arc<TransactionPool<C::TransactionPoolApi>>,
+        keystore: KeyStorePtr,
+    ) -> rpc::RpcHandler {
+        let subscriptions = rpc::apis::Subscriptions::new(task_executor.clone());
+        let chain = rpc::apis::chain::Chain::new(client.clone(), subscriptions.clone());
+        let state = rpc::apis::state::State::new(client.clone(), subscriptions.clone());
+        let author =
+            rpc::apis::author::Author::new(client, transaction_pool, subscriptions, keystore);
+        let system = rpc::apis::system::System::new(rpc_system_info, system_send_back);
+        rpc::rpc_handler::<ComponentBlock<C>, ComponentExHash<C>, _, _, _, _>(
+            state, chain, author, system,
+        )
+    }
 }
 
 /// Something that can maintain transaction pool on every imported block.
 pub trait MaintainTransactionPool<C: Components> {
-	fn maintain_transaction_pool(
-		id: &BlockId<ComponentBlock<C>>,
-		client: &ComponentClient<C>,
-		transaction_pool: &TransactionPool<C::TransactionPoolApi>,
-	) -> error::Result<()>;
+    fn maintain_transaction_pool(
+        id: &BlockId<ComponentBlock<C>>,
+        client: &ComponentClient<C>,
+        transaction_pool: &TransactionPool<C::TransactionPoolApi>,
+    ) -> error::Result<()>;
 }
 
 fn maintain_transaction_pool<Api, Backend, Block, Executor, PoolApi>(
-	id: &BlockId<Block>,
-	client: &Client<Backend, Executor, Block, Api>,
-	transaction_pool: &TransactionPool<PoolApi>,
-) -> error::Result<()> where
-	Block: BlockT<Hash = <Blake2Hasher as primitives::Hasher>::Out>,
-	Backend: client::backend::Backend<Block, Blake2Hasher>,
-	Client<Backend, Executor, Block, Api>: ProvideRuntimeApi,
-	<Client<Backend, Executor, Block, Api> as ProvideRuntimeApi>::Api: runtime_api::TaggedTransactionQueue<Block>,
-	Executor: client::CallExecutor<Block, Blake2Hasher>,
-	PoolApi: txpool::ChainApi<Hash = Block::Hash, Block = Block>,
+    id: &BlockId<Block>,
+    client: &Client<Backend, Executor, Block, Api>,
+    transaction_pool: &TransactionPool<PoolApi>,
+) -> error::Result<()>
+where
+    Block: BlockT<Hash = <Blake2Hasher as primitives::Hasher>::Out>,
+    Backend: client::backend::Backend<Block, Blake2Hasher>,
+    Client<Backend, Executor, Block, Api>: ProvideRuntimeApi,
+    <Client<Backend, Executor, Block, Api> as ProvideRuntimeApi>::Api:
+        runtime_api::TaggedTransactionQueue<Block>,
+    Executor: client::CallExecutor<Block, Blake2Hasher>,
+    PoolApi: txpool::ChainApi<Hash = Block::Hash, Block = Block>,
 {
-	// Avoid calling into runtime if there is nothing to prune from the pool anyway.
-	if transaction_pool.status().is_empty() {
-		return Ok(())
-	}
+    // Avoid calling into runtime if there is nothing to prune from the pool anyway.
+    if transaction_pool.status().is_empty() {
+        return Ok(());
+    }
 
-	if let Some(block) = client.block(id)? {
-		let parent_id = BlockId::hash(*block.block.header().parent_hash());
-		let extrinsics = block.block.extrinsics();
-		transaction_pool.prune(id, &parent_id, extrinsics).map_err(|e| format!("{:?}", e))?;
-	}
+    if let Some(block) = client.block(id)? {
+        let parent_id = BlockId::hash(*block.block.header().parent_hash());
+        let extrinsics = block.block.extrinsics();
+        transaction_pool
+            .prune(id, &parent_id, extrinsics)
+            .map_err(|e| format!("{:?}", e))?;
+    }
 
-	Ok(())
+    Ok(())
 }
 
-impl<C: Components> MaintainTransactionPool<Self> for C where
-	ComponentClient<C>: ProvideRuntimeApi,
-	<ComponentClient<C> as ProvideRuntimeApi>::Api: runtime_api::TaggedTransactionQueue<ComponentBlock<C>>,
+impl<C: Components> MaintainTransactionPool<Self> for C
+where
+    ComponentClient<C>: ProvideRuntimeApi,
+    <ComponentClient<C> as ProvideRuntimeApi>::Api:
+        runtime_api::TaggedTransactionQueue<ComponentBlock<C>>,
 {
-	fn maintain_transaction_pool(
-		id: &BlockId<ComponentBlock<C>>,
-		client: &ComponentClient<C>,
-		transaction_pool: &TransactionPool<C::TransactionPoolApi>,
-	) -> error::Result<()> {
-		maintain_transaction_pool(id, client, transaction_pool)
-	}
+    fn maintain_transaction_pool(
+        id: &BlockId<ComponentBlock<C>>,
+        client: &ComponentClient<C>,
+        transaction_pool: &TransactionPool<C::TransactionPoolApi>,
+    ) -> error::Result<()> {
+        maintain_transaction_pool(id, client, transaction_pool)
+    }
+}
+
+pub trait AuthorityDiscovery<C: Components> {
+    fn authority_discovery<H, S>(
+        client: Arc<ComponentClient<C>>,
+        network: Arc<network::NetworkService<ComponentBlock<C>, S, H>>,
+        dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
+    ) -> Box<dyn Future<Item = (), Error = ()> + Send>
+    where
+        H: network::ExHashT,
+        S: network::specialization::NetworkSpecialization<ComponentBlock<C>>;
+}
+
+impl<C: Components> AuthorityDiscovery<Self> for C
+where
+    ComponentClient<C>: ProvideRuntimeApi,
+<ComponentClient<C> as ProvideRuntimeApi>::Api:
+AuthorityDiscoveryApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId>,
+{
+    fn authority_discovery<H, S>(
+        client: Arc<ComponentClient<C>>,
+        network: Arc<network::NetworkService<ComponentBlock<C>, S, H>>,
+        dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
+    ) -> Box<dyn Future<Item = (), Error = ()> + Send>
+    where
+        H: network::ExHashT,
+        S: network::specialization::NetworkSpecialization<ComponentBlock<C>>,
+    {
+        Box::new(substrate_authority_discovery::AuthorityDiscovery::new(
+            client,
+            network,
+            dht_event_rx,
+        ))
+    }
 }
 
 pub trait OffchainWorker<C: Components> {
@@ -273,9 +321,10 @@ pub trait OffchainWorker<C: Components> {
 	) -> error::Result<Box<dyn Future<Item = (), Error = ()> + Send>>;
 }
 
-impl<C: Components> OffchainWorker<Self> for C where
-	ComponentClient<C>: ProvideRuntimeApi,
-	<ComponentClient<C> as ProvideRuntimeApi>::Api: offchain::OffchainWorkerApi<ComponentBlock<C>>,
+impl<C: Components> OffchainWorker<Self> for C
+where
+    ComponentClient<C>: ProvideRuntimeApi,
+    <ComponentClient<C> as ProvideRuntimeApi>::Api: offchain::OffchainWorkerApi<ComponentBlock<C>>,
 {
 	fn offchain_workers(
 		number: &FactoryBlockNumber<C::Factory>,
@@ -296,26 +345,31 @@ impl<C: Components> OffchainWorker<Self> for C where
 
 /// The super trait that combines all required traits a `Service` needs to implement.
 pub trait ServiceTrait<C: Components>:
-	Deref<Target = Service<C>>
-	+ Send
-	+ 'static
-	+ StartRPC<C>
-	+ MaintainTransactionPool<C>
-	+ OffchainWorker<C>
-	+ InitialSessionKeys<C>
-{}
+    Deref<Target = Service<C>>
+    + Send
+    + 'static
+    + StartRPC<C>
+    + AuthorityDiscovery<C>
+    + MaintainTransactionPool<C>
+    + OffchainWorker<C>
+    + InitialSessionKeys<C>
+{
+}
 impl<C: Components, T> ServiceTrait<C> for T where
-	T: Deref<Target = Service<C>>
-	+ Send
-	+ 'static
-	+ StartRPC<C>
-	+ MaintainTransactionPool<C>
-	+ OffchainWorker<C>
-	+ InitialSessionKeys<C>
-{}
+    T: Deref<Target = Service<C>>
+        + Send
+        + 'static
+        + StartRPC<C>
+        + AuthorityDiscovery<C>
+        + MaintainTransactionPool<C>
+        + OffchainWorker<C>
+        + InitialSessionKeys<C>
+{
+}
 
 /// Alias for a an implementation of `futures::future::Executor`.
-pub type TaskExecutor = Arc<dyn Executor<Box<dyn Future<Item = (), Error = ()> + Send>> + Send + Sync>;
+pub type TaskExecutor =
+    Arc<dyn Executor<Box<dyn Future<Item = (), Error = ()> + Send>> + Send + Sync>;
 
 /// A collection of types and methods to build a service on top of the substrate service.
 pub trait ServiceFactory: 'static + Sized {
@@ -345,6 +399,13 @@ pub trait ServiceFactory: 'static + Sized {
 	type LightImportQueue: ImportQueue<Self::Block> + 'static;
 	/// The Fork Choice Strategy for the chain
 	type SelectChain: SelectChain<Self::Block> + 'static;
+	///
+	// TODO: Are all of these trait bounds necessary?
+	type AuthorityId: primitives::crypto::Public
+		+ std::hash::Hash
+		+ codec::Codec
+		+ std::string::ToString
+		+ std::fmt::Debug;
 
 	//TODO: replace these with a constructor trait. that TransactionPool implements. (#1242)
 	/// Extrinsic pool constructor for the full client.
@@ -472,43 +533,39 @@ pub trait Components: Sized + 'static {
 
 /// A struct that implement `Components` for the full client.
 pub struct FullComponents<Factory: ServiceFactory> {
-	service: Service<FullComponents<Factory>>,
+    service: Service<FullComponents<Factory>>,
 }
 
 impl<Factory: ServiceFactory> FullComponents<Factory> {
-	/// Create new `FullComponents`
-	pub fn new(
-		config: FactoryFullConfiguration<Factory>
-	) -> Result<Self, error::Error> {
-		Ok(
-			Self {
-				service: Service::new(config)?,
-			}
-		)
-	}
+    /// Create new `FullComponents`
+    pub fn new(config: FactoryFullConfiguration<Factory>) -> Result<Self, error::Error> {
+        Ok(Self {
+            service: Service::new(config)?,
+        })
+    }
 }
 
 impl<Factory: ServiceFactory> Deref for FullComponents<Factory> {
-	type Target = Service<Self>;
+    type Target = Service<Self>;
 
-	fn deref(&self) -> &Self::Target {
-		&self.service
-	}
+    fn deref(&self) -> &Self::Target {
+        &self.service
+    }
 }
 
 impl<Factory: ServiceFactory> DerefMut for FullComponents<Factory> {
-	fn deref_mut(&mut self) -> &mut Service<Self> {
-		&mut self.service
-	}
+    fn deref_mut(&mut self) -> &mut Service<Self> {
+        &mut self.service
+    }
 }
 
 impl<Factory: ServiceFactory> Future for FullComponents<Factory> {
 	type Item = ();
 	type Error = super::Error;
 
-	fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-		self.service.poll()
-	}
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.service.poll()
+    }
 }
 
 impl<Factory: ServiceFactory> Executor<Box<dyn Future<Item = (), Error = ()> + Send>>
@@ -598,28 +655,24 @@ impl<Factory: ServiceFactory> Components for FullComponents<Factory> {
 
 /// A struct that implement `Components` for the light client.
 pub struct LightComponents<Factory: ServiceFactory> {
-	service: Service<LightComponents<Factory>>,
+    service: Service<LightComponents<Factory>>,
 }
 
 impl<Factory: ServiceFactory> LightComponents<Factory> {
-	/// Create new `LightComponents`
-	pub fn new(
-		config: FactoryFullConfiguration<Factory>,
-	) -> Result<Self, error::Error> {
-		Ok(
-			Self {
-				service: Service::new(config)?,
-			}
-		)
-	}
+    /// Create new `LightComponents`
+    pub fn new(config: FactoryFullConfiguration<Factory>) -> Result<Self, error::Error> {
+        Ok(Self {
+            service: Service::new(config)?,
+        })
+    }
 }
 
 impl<Factory: ServiceFactory> Deref for LightComponents<Factory> {
-	type Target = Service<Self>;
+    type Target = Service<Self>;
 
-	fn deref(&self) -> &Self::Target {
-		&self.service
-	}
+    fn deref(&self) -> &Self::Target {
+        &self.service
+    }
 }
 
 impl<Factory: ServiceFactory> DerefMut for LightComponents<Factory> {
@@ -632,9 +685,9 @@ impl<Factory: ServiceFactory> Future for LightComponents<Factory> {
 	type Item = ();
 	type Error = super::Error;
 
-	fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-		self.service.poll()
-	}
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        self.service.poll()
+    }
 }
 
 impl<Factory: ServiceFactory> Executor<Box<dyn Future<Item = (), Error = ()> + Send>>
@@ -719,43 +772,44 @@ impl<Factory: ServiceFactory> Components for LightComponents<Factory> {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use consensus_common::BlockOrigin;
-	use substrate_test_runtime_client::{prelude::*, runtime::Transfer};
+    use super::*;
+    use consensus_common::BlockOrigin;
+    use substrate_test_runtime_client::{prelude::*, runtime::Transfer};
 
-	#[test]
-	fn should_remove_transactions_from_the_pool() {
-		let (client, longest_chain) = TestClientBuilder::new().build_with_longest_chain();
-		let client = Arc::new(client);
-		let pool = TransactionPool::new(Default::default(), ::transaction_pool::ChainApi::new(client.clone()));
-		let transaction = Transfer {
-			amount: 5,
-			nonce: 0,
-			from: AccountKeyring::Alice.into(),
-			to: Default::default(),
-		}.into_signed_tx();
-		let best = longest_chain.best_chain().unwrap();
+    #[test]
+    fn should_remove_transactions_from_the_pool() {
+        let (client, longest_chain) = TestClientBuilder::new().build_with_longest_chain();
+        let client = Arc::new(client);
+        let pool = TransactionPool::new(
+            Default::default(),
+            ::transaction_pool::ChainApi::new(client.clone()),
+        );
+        let transaction = Transfer {
+            amount: 5,
+            nonce: 0,
+            from: AccountKeyring::Alice.into(),
+            to: Default::default(),
+        }
+        .into_signed_tx();
+        let best = longest_chain.best_chain().unwrap();
 
-		// store the transaction in the pool
-		pool.submit_one(&BlockId::hash(best.hash()), transaction.clone()).unwrap();
+        // store the transaction in the pool
+        pool.submit_one(&BlockId::hash(best.hash()), transaction.clone())
+            .unwrap();
 
-		// import the block
-		let mut builder = client.new_block(Default::default()).unwrap();
-		builder.push(transaction.clone()).unwrap();
-		let block = builder.bake().unwrap();
-		let id = BlockId::hash(block.header().hash());
-		client.import(BlockOrigin::Own, block).unwrap();
+        // import the block
+        let mut builder = client.new_block(Default::default()).unwrap();
+        builder.push(transaction.clone()).unwrap();
+        let block = builder.bake().unwrap();
+        let id = BlockId::hash(block.header().hash());
+        client.import(BlockOrigin::Own, block).unwrap();
 
-		// fire notification - this should clean up the queue
-		assert_eq!(pool.status().ready, 1);
-		maintain_transaction_pool(
-			&id,
-			&client,
-			&pool,
-		).unwrap();
+        // fire notification - this should clean up the queue
+        assert_eq!(pool.status().ready, 1);
+        maintain_transaction_pool(&id, &client, &pool).unwrap();
 
-		// then
-		assert_eq!(pool.status().ready, 0);
-		assert_eq!(pool.status().future, 0);
-	}
+        // then
+        assert_eq!(pool.status().ready, 0);
+        assert_eq!(pool.status().future, 0);
+    }
 }

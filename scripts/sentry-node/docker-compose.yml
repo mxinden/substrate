@@ -38,13 +38,10 @@ services:
       - "--base-path"
       - "/tmp/alice"
       - "--chain=local"
-      - "--key"
-      - "//Alice"
+      - "--alice"
       - "--port"
       - "30333"
-      - "--validator"
-      - "--name"
-      - "AlicesNode"
+      # - "--validator"
       - "--reserved-nodes"
       - "/dns4/sentry-a/tcp/30333/p2p/QmV7EhW6J6KgmNdr558RH1mPx2xGGznW7At4BhXzntRFsi"
       # Not only bind to localhost.
@@ -95,7 +92,7 @@ services:
       - "--rpc-external"
       # Make sure sentry-a still participates as a grandpa voter to forward
       # grandpa finality gossip messages.
-      - "--grandpa-voter"
+      # - "--grandpa-voter"
 
   validator-b:
     image: parity/substrate
@@ -112,13 +109,10 @@ services:
       - "--base-path"
       - "/tmp/bob"
       - "--chain=local"
-      - "--key"
-      - "//Bob"
+      - "--bob"
       - "--port"
       - "30333"
-      - "--validator"
-      - "--name"
-      - "BobsNode"
+      # - "--validator"
       - "--bootnodes"
       - "/dns4/validator-a/tcp/30333/p2p/QmRpheLN4JWdAnY7HGJfWFNbfkQCb6tFf4vvA6hgjMZKrR"
       - "--bootnodes"
