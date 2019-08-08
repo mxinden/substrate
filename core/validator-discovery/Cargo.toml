@@ -9,6 +9,7 @@ network = { package = "substrate-network", path = "../../core/network" }
 sr-primitives = { path = "../../core/sr-primitives" }
 client = { package = "substrate-client", path = "../../core/client" }
 consensus_common_primitives = { package = "substrate-consensus-common-primitives", path = "../../core/consensus/common/primitives", default-features = false }
-parity-codec = "4.1.1"
+codec = { package = "parity-scale-codec", default-features = false, version = "1.0.3" }
+futures = "0.1.17"
 
 [dev-dependencies]

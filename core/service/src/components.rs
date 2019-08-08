@@ -37,6 +37,7 @@ use primitives::{Blake2Hasher, H256, traits::BareCryptoStorePtr};
 use rpc::{self, apis::system::SystemInfo};
 use futures::{prelude::*, future::Executor};
 use futures03::{FutureExt as _, channel::mpsc, compat::Compat};
+use consensus_common_primitives::ConsensusApi;
 
 // Type aliases.
 // These exist mainly to avoid typing `<F as Factory>::Foo` all over the code.
@@ -258,6 +259,32 @@ impl<C: Components> MaintainTransactionPool<Self> for C where
 	}
 }
 
+pub trait ValidatorDiscovery<C: Components> {
+    fn validator_discovery<H, S>(
+		    network: Arc<network::NetworkService<ComponentBlock<C>,  S, H>>,
+		    client: Arc<ComponentClient<C>>,
+    ) -> Box<dyn Future<Item = (), Error = ()> + Send>
+	  where
+		    H: network::ExHashT,
+		    S:network::specialization::NetworkSpecialization<ComponentBlock<C>>;
+}
+
+impl<C: Components> ValidatorDiscovery<Self> for C where
+    ComponentClient<C>: ProvideRuntimeApi,
+<ComponentClient<C> as ProvideRuntimeApi>::Api: ConsensusApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId>,
+{
+    fn validator_discovery<H, S>(
+		network: Arc<network::NetworkService<ComponentBlock<C>,  S, H>>,
+        client: Arc<ComponentClient<C>>,
+    )-> Box<dyn Future<Item = (), Error = ()> + Send>
+    where
+        H: network::ExHashT,
+        S:network::specialization::NetworkSpecialization<ComponentBlock<C>>
+    {
+        Box::new(substrate_validator_discovery::ValidatorDiscovery::new(client, network))
+    }
+}
+
 pub trait OffchainWorker<C: Components> {
 	fn offchain_workers(
 		number: &FactoryBlockNumber<C::Factory>,
@@ -297,6 +324,7 @@ pub trait ServiceTrait<C: Components>:
 	+ Send
 	+ 'static
 	+ StartRPC<C>
+  + ValidatorDiscovery<C>
 	+ MaintainTransactionPool<C>
 	+ OffchainWorker<C>
 	+ InitialSessionKeys<C>
@@ -306,6 +334,7 @@ impl<C: Components, T> ServiceTrait<C> for T where
 	+ Send
 	+ 'static
 	+ StartRPC<C>
+    + ValidatorDiscovery<C>
 	+ MaintainTransactionPool<C>
 	+ OffchainWorker<C>
 	+ InitialSessionKeys<C>
@@ -342,6 +371,9 @@ pub trait ServiceFactory: 'static + Sized {
 	type LightImportQueue: ImportQueue<Self::Block> + 'static;
 	/// The Fork Choice Strategy for the chain
 	type SelectChain: SelectChain<Self::Block> + 'static;
+	///
+	// TODO: Are all of these trait bounds necessary?
+	type AuthorityId:  primitives::crypto::Public + std::hash::Hash + codec::Codec + std::string::ToString;
 
 	//TODO: replace these with a constructor trait. that TransactionPool implements. (#1242)
 	/// Extrinsic pool constructor for the full client.
@@ -427,6 +459,7 @@ pub trait Components: Sized + 'static {
 	type ImportQueue: ImportQueue<FactoryBlock<Self::Factory>> + 'static;
 	/// The Fork Choice Strategy for the chain
 	type SelectChain: SelectChain<FactoryBlock<Self::Factory>>;
+
 
 	/// Create client.
 	fn build_client(

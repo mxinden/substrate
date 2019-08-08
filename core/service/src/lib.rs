@@ -37,7 +37,7 @@ use exit_future::Signal;
 use futures::prelude::*;
 use futures03::stream::{StreamExt as _, TryStreamExt as _};
 use keystore::Store as Keystore;
-use network::{NetworkState, NetworkStateInfo};
+use network::{NetworkState, NetworkStateInfo, Event, DhtEvent};
 use log::{log, info, warn, debug, error, Level};
 use codec::{Encode, Decode};
 use sr_primitives::generic::BlockId;
@@ -45,7 +45,7 @@ use sr_primitives::traits::{Header, NumberFor, SaturatedConversion};
 use substrate_executor::NativeExecutor;
 use sysinfo::{get_current_pid, ProcessExt, System, SystemExt};
 use tel::{telemetry, SUBSTRATE_INFO};
-use substrate_validator_discovery::ValidatorDiscovery;
+use crate::components::ValidatorDiscovery;
 
 pub use self::error::Error;
 pub use config::{Configuration, Roles, PruningMode};
@@ -231,8 +231,6 @@ impl<Components: components::Components> Service<Components> {
 		let network = network_mut.service().clone();
 		let network_status_sinks = Arc::new(Mutex::new(Vec::new()));
 
-		let validator_discovery = ValidatorDiscovery::new(client.clone(), network.clone());
-
 		#[allow(deprecated)]
 		let offchain_storage = client.backend().offchain_storage();
 		let offchain_workers = match (config.offchain_worker, offchain_storage) {
@@ -380,6 +378,9 @@ impl<Components: components::Components> Service<Components> {
 		};
 		let rpc_handlers = gen_handler();
 		let rpc = start_rpc_servers(&config, gen_handler)?;
+
+		let validator_discovery = Components::RuntimeServices::validator_discovery(network.clone(), client.clone());
+		let _ = to_spawn_tx.unbounded_send(Box::new(validator_discovery));
 
 		let _ = to_spawn_tx.unbounded_send(Box::new(build_network_future(
 			network_mut,
@@ -679,11 +680,17 @@ fn build_network_future<
 		}
 
 		// Main network polling.
-		match network.poll() {
-			Ok(Async::NotReady) => {}
-			Err(err) => warn!(target: "service", "Error in network: {:?}", err),
-			Ok(Async::Ready(())) => warn!(target: "service", "Network service finished"),
-		}
+		while let Ok(Async::Ready(Some(Event::Dht(event)))) = network.poll().map_err(|err| {
+			warn!(target: "service", "Error in network: {:?}", err);
+		}) {
+			// TODO: Let's do something with the event.
+			// match event {
+			// 	DhtEvent::ValueFound(values) => add_reserved_peer(values),
+			// 	DhtEvent::ValueNotFound(_h) => println!("==== Didn't find hash"),
+			// 	DhtEvent::ValuePut(_h) => {},
+			// 	DhtEvent::ValuePutFailed(_h) => println!("==== failed to put value on DHT"),
+			// }
+		};
 
 		// Now some diagnostic for performances.
 		let polling_dur = before_polling.elapsed();
@@ -987,6 +994,7 @@ macro_rules! construct_service_factory {
 			SelectChain = $select_chain:ty
 				{ $( $select_chain_init:tt )* },
 			FinalityProofProvider = { $( $finality_proof_provider_init:tt )* },
+ 			AuthorityId = $authority_id:ty,
 		}
 	) => {
 		$( #[$attr] )*
@@ -1007,6 +1015,7 @@ macro_rules! construct_service_factory {
 			type FullImportQueue = $full_import_queue;
 			type LightImportQueue = $light_import_queue;
 			type SelectChain = $select_chain;
+ 			type AuthorityId = $authority_id;
 
 			fn build_full_transaction_pool(
 				config: $crate::TransactionPoolOptions,
