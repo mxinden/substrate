@@ -379,15 +379,22 @@ impl<Components: components::Components> Service<Components> {
 		let rpc_handlers = gen_handler();
 		let rpc = start_rpc_servers(&config, gen_handler)?;
 
-		let validator_discovery = Components::RuntimeServices::validator_discovery(network.clone(), client.clone());
-		let _ = to_spawn_tx.unbounded_send(Box::new(validator_discovery));
+		let (dht_event_tx, dht_event_rx) =
+			mpsc::unbounded::<DhtEvent>();
+		let validator_discovery = Components::RuntimeServices::validator_discovery(
+			client.clone(),
+			network.clone(),
+			dht_event_rx,
+		);
+		let _ = to_spawn_tx.unbounded_send(validator_discovery);
 
 		let _ = to_spawn_tx.unbounded_send(Box::new(build_network_future(
 			network_mut,
 			client.clone(),
 			network_status_sinks.clone(),
 			system_rpc_rx,
-			has_bootnodes
+			has_bootnodes,
+			dht_event_tx,
 		)
 			.map_err(|_| ())
 			.select(exit.clone())
@@ -605,6 +612,7 @@ fn build_network_future<
 	status_sinks: Arc<Mutex<Vec<mpsc::UnboundedSender<(NetworkStatus<B>, NetworkState)>>>>,
 	rpc_rx: futures03::channel::mpsc::UnboundedReceiver<rpc::apis::system::Request<B>>,
 	should_have_peers: bool,
+	dht_events_tx: mpsc::UnboundedSender<DhtEvent>,
 ) -> impl Future<Item = (), Error = ()> {
 	// Compatibility shim while we're transitionning to stable Futures.
 	// See https://github.com/paritytech/substrate/issues/3099
@@ -683,13 +691,7 @@ fn build_network_future<
 		while let Ok(Async::Ready(Some(Event::Dht(event)))) = network.poll().map_err(|err| {
 			warn!(target: "service", "Error in network: {:?}", err);
 		}) {
-			// TODO: Let's do something with the event.
-			// match event {
-			// 	DhtEvent::ValueFound(values) => add_reserved_peer(values),
-			// 	DhtEvent::ValueNotFound(_h) => println!("==== Didn't find hash"),
-			// 	DhtEvent::ValuePut(_h) => {},
-			// 	DhtEvent::ValuePutFailed(_h) => println!("==== failed to put value on DHT"),
-			// }
+			dht_events_tx.unbounded_send(event.clone()).unwrap();
 		};
 
 		// Now some diagnostic for performances.

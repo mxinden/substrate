@@ -5115,6 +5115,7 @@ dependencies = [
  "substrate-client 2.0.0",
  "substrate-consensus-common-primitives 2.0.0",
  "substrate-network 2.0.0",
+ "tokio-timer 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

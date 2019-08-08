@@ -7,12 +7,15 @@ use std::sync::Arc;
 use client::blockchain::HeaderBackend;
 use consensus_common_primitives::ConsensusApi;
 use error::{Error, Result};
+use futures::{future::Executor, prelude::*, sync::mpsc};
 use network::specialization::NetworkSpecialization;
 use network::ExHashT;
+use network::{DhtEvent, Event};
 use sr_primitives::generic::BlockId;
 use sr_primitives::traits::Block;
 use sr_primitives::traits::ProvideRuntimeApi;
 use std::marker::PhantomData;
+use std::time::{Duration, Instant};
 
 // TODO: Needed?
 mod error;
@@ -27,7 +30,13 @@ where
     <Client as ProvideRuntimeApi>::Api: ConsensusApi<B, AuthorityId>,
 {
     client: Arc<Client>,
+
     network: Arc<network::NetworkService<B, S, H>>,
+    dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
+
+    /// Interval to be proactive.
+    interval: tokio_timer::Interval,
+
     phantom: PhantomData<AuthorityId>,
 }
 
@@ -44,11 +53,20 @@ where
     pub fn new(
         client: Arc<Client>,
         network: Arc<network::NetworkService<B, S, H>>,
+        dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
     ) -> ValidatorDiscovery<AuthorityId, Client, B, S, H> {
-        ValidatorDiscovery { network, client, phantom: PhantomData }
+        let mut interval = tokio_timer::Interval::new_interval(Duration::from_secs(5));
+
+        ValidatorDiscovery {
+            client,
+            network,
+            dht_event_rx,
+            interval,
+            phantom: PhantomData,
+        }
     }
 
-    pub fn authorities(&mut self) {
+    pub fn publish_own_ext_addresses(&mut self) {
         let id = BlockId::hash(self.client.info().best_hash);
         self.client.runtime_api().authorities(&id);
     }
@@ -66,8 +84,11 @@ where
 {
     type Item = ();
     type Error = ();
+
     fn poll(&mut self) -> futures::Poll<Self::Item, Self::Error> {
-        self.authorities();
+        while let Ok(Async::Ready(_)) = self.interval.poll() {
+            self.publish_own_ext_addresses();
+        }
 
         Ok(futures::Async::NotReady)
     }
