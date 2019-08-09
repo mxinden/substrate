@@ -75,7 +75,7 @@ where
         }
     }
 
-    pub fn publish_own_ext_addresses(&mut self) {
+    fn publish_own_ext_addresses(&mut self) {
         let id = BlockId::hash(self.client.info().best_hash);
         let pub_key = self.client.runtime_api().public_key(&id).unwrap().unwrap();
 
@@ -114,6 +114,22 @@ where
         self.network
             .put_value(hashed_public_key, payload.into_bytes());
     }
+
+    fn request_addresses_of_others(&mut self) {
+        let id = BlockId::hash(self.client.info().best_hash);
+        let authorities = self.client.runtime_api().authorities(&id).unwrap();
+
+        for authority in authorities.iter() {
+            let hashed_public_key = libp2p::multihash::encode(
+                libp2p::multihash::Hash::SHA2256,
+                authority.as_ref(),
+            )
+            .expect("public key hashing not to fail");
+
+            self.network.get_value(&hashed_public_key.clone());
+        }
+    }
+
 }
 
 impl<AuthorityId, Signature, Client, B, S, H> futures::Future
@@ -133,6 +149,8 @@ where
     fn poll(&mut self) -> futures::Poll<Self::Item, Self::Error> {
         while let Ok(Async::Ready(_)) = self.interval.poll() {
             self.publish_own_ext_addresses();
+
+            self.request_addresses_of_others();
         }
 
         Ok(futures::Async::NotReady)
