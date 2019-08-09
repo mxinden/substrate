@@ -9,8 +9,8 @@ use error::{Error, Result};
 use futures::{future::Executor, prelude::*, sync::mpsc};
 use network::specialization::NetworkSpecialization;
 use network::ExHashT;
-use network::{DhtEvent, Event};
 use network::NetworkStateInfo;
+use network::{DhtEvent, Event};
 use sr_primitives::generic::BlockId;
 use sr_primitives::traits::Block;
 use sr_primitives::traits::ProvideRuntimeApi;
@@ -26,7 +26,7 @@ where
     S: NetworkSpecialization<B>,
     H: ExHashT,
     AuthorityId: std::string::ToString + codec::Codec + std::convert::AsRef<[u8]>,
-    Signature: codec::Codec+ std::convert::AsRef<[u8]>,
+    Signature: codec::Codec + std::convert::AsRef<[u8]>,
     Client: ProvideRuntimeApi + Send + Sync + 'static + HeaderBackend<B>,
     <Client as ProvideRuntimeApi>::Api: ImOnlineApi<B, AuthorityId, Signature>,
 {
@@ -51,7 +51,7 @@ where
     S: NetworkSpecialization<B>,
     H: ExHashT,
     AuthorityId: std::string::ToString + codec::Codec + std::convert::AsRef<[u8]>,
-    Signature: codec::Codec+ std::convert::AsRef<[u8]>,
+    Signature: codec::Codec + std::convert::AsRef<[u8]>,
     Client: ProvideRuntimeApi + Send + Sync + 'static + HeaderBackend<B>,
     <Client as ProvideRuntimeApi>::Api: ImOnlineApi<B, AuthorityId, Signature>,
 {
@@ -83,7 +83,8 @@ where
             libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, pub_key.as_ref())
                 .expect("public key hashing not to fail");
 
-        let addresses: Vec<libp2p::Multiaddr> = self.network
+        let addresses: Vec<libp2p::Multiaddr> = self
+            .network
             .external_addresses()
             .iter()
             .map(|a| {
@@ -95,16 +96,23 @@ where
             })
             .collect();
 
-		let serialized_addresses = serde_json::to_string(&addresses)
-			.map(|s| s.into_bytes())
-			.expect("enriched_address marshaling not to fail");
+        let serialized_addresses = serde_json::to_string(&addresses)
+            .map(|s| s.into_bytes())
+            .expect("enriched_address marshaling not to fail");
 
-		let sig = self.client.runtime_api().sign(&id, serialized_addresses).unwrap().unwrap();
+        let sig = self
+            .client
+            .runtime_api()
+            .sign(&id, serialized_addresses)
+            .unwrap()
+            .unwrap();
 
-		// TODO: Could sig also derive serialize instead of `as_ref().to_vec()`?
-		let payload = serde_json::to_string(&(addresses, sig.as_ref().to_vec())).expect("payload marshaling not to fail");
+        // TODO: Could sig also derive serialize instead of `as_ref().to_vec()`?
+        let payload = serde_json::to_string(&(addresses, sig.as_ref().to_vec()))
+            .expect("payload marshaling not to fail");
 
-		self.network.put_value(hashed_public_key, payload.into_bytes());
+        self.network
+            .put_value(hashed_public_key, payload.into_bytes());
     }
 }
 
@@ -115,7 +123,7 @@ where
     S: NetworkSpecialization<B>,
     H: ExHashT,
     AuthorityId: std::string::ToString + codec::Codec + std::convert::AsRef<[u8]>,
-    Signature: codec::Codec+ std::convert::AsRef<[u8]>,
+    Signature: codec::Codec + std::convert::AsRef<[u8]>,
     Client: ProvideRuntimeApi + Send + Sync + 'static + HeaderBackend<B>,
     <Client as ProvideRuntimeApi>::Api: ImOnlineApi<B, AuthorityId, Signature>,
 {
