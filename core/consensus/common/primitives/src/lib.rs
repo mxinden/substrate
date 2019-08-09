@@ -28,4 +28,11 @@ decl_runtime_apis! {
 		/// Returns the set of authorities of the currently active consensus mechanism.
 		fn authorities() -> Vec<AuthorityId>;
 	}
+
+	pub trait ImOnlineApi<AuthorityId: Codec, Signature: Codec> {
+		fn public_key() -> Option<AuthorityId>;
+		fn authorities() -> Vec<AuthorityId>;
+		fn sign(payload: Vec<u8>) -> Option<Signature>;
+		fn verify(payload: Vec<u8>, signature: Signature, public_key: AuthorityId) -> bool;
+	}
 }

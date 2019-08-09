@@ -23,6 +23,7 @@ use client::{self, runtime_api, Client};
 use client_db;
 use consensus_common::{import_queue::ImportQueue, SelectChain};
 use consensus_common_primitives::ConsensusApi;
+use consensus_common_primitives::ImOnlineApi;
 use futures::{future::Executor, prelude::*};
 use futures03::{channel::mpsc, compat::Compat, FutureExt as _};
 use keystore::KeyStorePtr;
@@ -287,8 +288,8 @@ pub trait ValidatorDiscovery<C: Components> {
 impl<C: Components> ValidatorDiscovery<Self> for C
 where
     ComponentClient<C>: ProvideRuntimeApi,
-    <ComponentClient<C> as ProvideRuntimeApi>::Api:
-        ConsensusApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId>,
+<ComponentClient<C> as ProvideRuntimeApi>::Api:
+ImOnlineApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId, <C::Factory as ServiceFactory>::Signature>,
 {
     fn validator_discovery<H, S>(
         client: Arc<ComponentClient<C>>,
@@ -413,6 +414,7 @@ pub trait ServiceFactory: 'static + Sized {
         + std::hash::Hash
         + codec::Codec
         + std::string::ToString;
+    type Signature: codec::Codec + Send;
 
     //TODO: replace these with a constructor trait. that TransactionPool implements. (#1242)
     /// Extrinsic pool constructor for the full client.

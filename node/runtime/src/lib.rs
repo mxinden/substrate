@@ -569,6 +569,23 @@ impl_runtime_apis! {
 		}
 	}
 
+	impl consensus_primitives::ImOnlineApi<Block, im_online::AuthorityId, im_online::AuthoritySignature> for Runtime {
+		fn public_key() -> Option<im_online::AuthorityId> {
+			ImOnline::public_key()
+		}
+		fn authorities() -> Vec<im_online::AuthorityId> {
+			ImOnline::authorities()
+		}
+
+		fn sign(payload: Vec<u8>) -> Option<im_online::AuthoritySignature> {
+			ImOnline::sign(payload)
+		}
+
+		fn verify(payload: Vec<u8>, signature: im_online::AuthoritySignature, public_key: im_online::AuthorityId) -> bool {
+			ImOnline::verify(payload, signature, public_key)
+		}
+	}
+
 	impl substrate_session::SessionKeys<Block> for Runtime {
 		fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
 			let seed = seed.as_ref().map(|s| rstd::str::from_utf8(&s).expect("Seed is an utf8 string"));

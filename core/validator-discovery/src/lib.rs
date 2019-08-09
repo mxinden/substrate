@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use client::blockchain::HeaderBackend;
-use consensus_common_primitives::ConsensusApi;
+use consensus_common_primitives::ImOnlineApi;
 use error::{Error, Result};
 use futures::{future::Executor, prelude::*, sync::mpsc};
 use network::specialization::NetworkSpecialization;
@@ -20,14 +20,15 @@ use std::time::{Duration, Instant};
 // TODO: Needed?
 mod error;
 
-pub struct ValidatorDiscovery<AuthorityId, Client, B, S, H>
+pub struct ValidatorDiscovery<AuthorityId, Signature, Client, B, S, H>
 where
     B: Block + 'static,
     S: NetworkSpecialization<B>,
     H: ExHashT,
     AuthorityId: std::string::ToString + codec::Codec,
+Signature: codec::Codec,
     Client: ProvideRuntimeApi + Send + Sync + 'static + HeaderBackend<B>,
-    <Client as ProvideRuntimeApi>::Api: ConsensusApi<B, AuthorityId>,
+    <Client as ProvideRuntimeApi>::Api: ImOnlineApi<B, AuthorityId, Signature>,
 {
     client: Arc<Client>,
 
@@ -39,17 +40,19 @@ where
 
     keystore: keystore::KeyStorePtr,
 
-    phantom: PhantomData<AuthorityId>,
+    phantom_authority_id: PhantomData<AuthorityId>,
+    phantom_signature: PhantomData<Signature>,
 }
 
-impl<AuthorityId, Client, B, S, H> ValidatorDiscovery<AuthorityId, Client, B, S, H>
+impl<AuthorityId, Signature, Client, B, S, H> ValidatorDiscovery<AuthorityId, Signature, Client, B, S, H>
 where
     B: Block + 'static,
     S: NetworkSpecialization<B>,
     H: ExHashT,
     AuthorityId: std::string::ToString + codec::Codec,
+    Signature: codec::Codec,
     Client: ProvideRuntimeApi + Send + Sync + 'static + HeaderBackend<B>,
-    <Client as ProvideRuntimeApi>::Api: ConsensusApi<B, AuthorityId>,
+    <Client as ProvideRuntimeApi>::Api: ImOnlineApi<B, AuthorityId, Signature>,
 {
     /// Return a new validator discovery.
     pub fn new(
@@ -57,7 +60,7 @@ where
         network: Arc<network::NetworkService<B, S, H>>,
         dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
         keystore: keystore::KeyStorePtr,
-    ) -> ValidatorDiscovery<AuthorityId, Client, B, S, H> {
+    ) -> ValidatorDiscovery<AuthorityId, Signature, Client, B, S, H> {
         let mut interval = tokio_timer::Interval::new_interval(Duration::from_secs(5));
 
         ValidatorDiscovery {
@@ -66,7 +69,8 @@ where
             dht_event_rx,
             interval,
             keystore,
-            phantom: PhantomData,
+            phantom_authority_id: PhantomData,
+            phantom_signature: PhantomData,
         }
     }
 
@@ -78,20 +82,21 @@ where
 
 
 
-        let id = BlockId::hash(self.client.info().best_hash);
-        self.client.runtime_api().authorities(&id);
+        // let id = BlockId::hash(self.client.info().best_hash);
+        // self.client.runtime_api().authorities(&id);
     }
 }
 
-impl<AuthorityId, Client, B, S, H> futures::Future
-    for ValidatorDiscovery<AuthorityId, Client, B, S, H>
+impl<AuthorityId, Signature, Client, B, S, H> futures::Future
+    for ValidatorDiscovery<AuthorityId, Signature, Client, B, S, H>
 where
     B: Block + 'static,
     S: NetworkSpecialization<B>,
     H: ExHashT,
     AuthorityId: std::string::ToString + codec::Codec,
+    Signature: codec::Codec,
     Client: ProvideRuntimeApi + Send + Sync + 'static + HeaderBackend<B>,
-    <Client as ProvideRuntimeApi>::Api: ConsensusApi<B, AuthorityId>,
+    <Client as ProvideRuntimeApi>::Api: ImOnlineApi<B, AuthorityId, Signature>,
 {
     type Item = ();
     type Error = ();

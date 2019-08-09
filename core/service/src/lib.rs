@@ -997,7 +997,8 @@ macro_rules! construct_service_factory {
 			SelectChain = $select_chain:ty
 				{ $( $select_chain_init:tt )* },
 			FinalityProofProvider = { $( $finality_proof_provider_init:tt )* },
- 			AuthorityId = $authority_id:ty,
+			AuthorityId = $authority_id:ty,
+			Signature= $signature:ty,
 		}
 	) => {
 		$( #[$attr] )*
@@ -1019,6 +1020,7 @@ macro_rules! construct_service_factory {
 			type LightImportQueue = $light_import_queue;
 			type SelectChain = $select_chain;
  			type AuthorityId = $authority_id;
+ 			type Signature = $signature;
 
 			fn build_full_transaction_pool(
 				config: $crate::TransactionPoolOptions,
