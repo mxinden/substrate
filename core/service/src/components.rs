@@ -414,7 +414,7 @@ pub trait ServiceFactory: 'static + Sized {
         + std::hash::Hash
         + codec::Codec
         + std::string::ToString;
-    type Signature: codec::Codec + Send;
+    type Signature: codec::Codec + Send + AsRef<[u8]>;
 
     //TODO: replace these with a constructor trait. that TransactionPool implements. (#1242)
     /// Extrinsic pool constructor for the full client.
