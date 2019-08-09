@@ -7,10 +7,13 @@ edition = "2018"
 [dependencies]
 network = { package = "substrate-network", path = "../../core/network" }
 sr-primitives = { path = "../../core/sr-primitives" }
+primitives = { package = "substrate-primitives", path = "../primitives" }
 client = { package = "substrate-client", path = "../../core/client" }
 consensus_common_primitives = { package = "substrate-consensus-common-primitives", path = "../../core/consensus/common/primitives", default-features = false }
 codec = { package = "parity-scale-codec", default-features = false, version = "1.0.3" }
 futures = "0.1.17"
 tokio-timer = "0.2"
+keystore = { package = "substrate-keystore", path = "../../core/keystore" }
+babe-primitives = { package = "substrate-consensus-babe-primitives", path = "../../core/consensus/babe/primitives", default-features = false }
 
 [dev-dependencies]

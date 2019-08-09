@@ -37,6 +37,8 @@ where
     /// Interval to be proactive.
     interval: tokio_timer::Interval,
 
+    keystore: keystore::KeyStorePtr,
+
     phantom: PhantomData<AuthorityId>,
 }
 
@@ -54,6 +56,7 @@ where
         client: Arc<Client>,
         network: Arc<network::NetworkService<B, S, H>>,
         dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
+        keystore: keystore::KeyStorePtr,
     ) -> ValidatorDiscovery<AuthorityId, Client, B, S, H> {
         let mut interval = tokio_timer::Interval::new_interval(Duration::from_secs(5));
 
@@ -62,11 +65,19 @@ where
             network,
             dht_event_rx,
             interval,
+            keystore,
             phantom: PhantomData,
         }
     }
 
     pub fn publish_own_ext_addresses(&mut self) {
+        // TODO: Don't just use babe crypto.
+        let pub_key = self.keystore.read().public_keys_by_type::<babe_primitives::AuthorityId>(primitives::crypto::key_types::BABE);
+        let key_pair = self.keystore.read().key_pair::<babe_primitives::AuthorityPair>(&pub_key.unwrap()[0]);
+
+
+
+
         let id = BlockId::hash(self.client.info().best_hash);
         self.client.runtime_api().authorities(&id);
     }

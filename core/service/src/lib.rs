@@ -385,6 +385,7 @@ impl<Components: components::Components> Service<Components> {
 			client.clone(),
 			network.clone(),
 			dht_event_rx,
+			keystore.clone(),
 		);
 		let _ = to_spawn_tx.unbounded_send(validator_discovery);
 

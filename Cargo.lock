@@ -5113,8 +5113,11 @@ dependencies = [
  "parity-scale-codec 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "sr-primitives 2.0.0",
  "substrate-client 2.0.0",
+ "substrate-consensus-babe-primitives 2.0.0",
  "substrate-consensus-common-primitives 2.0.0",
+ "substrate-keystore 2.0.0",
  "substrate-network 2.0.0",
+ "substrate-primitives 2.0.0",
  "tokio-timer 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

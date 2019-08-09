@@ -277,6 +277,7 @@ pub trait ValidatorDiscovery<C: Components> {
         client: Arc<ComponentClient<C>>,
         network: Arc<network::NetworkService<ComponentBlock<C>, S, H>>,
         dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
+        keystore: keystore::KeyStorePtr,
     ) -> Box<dyn Future<Item = (), Error = ()> + Send>
     where
         H: network::ExHashT,
@@ -293,6 +294,7 @@ where
         client: Arc<ComponentClient<C>>,
         network: Arc<network::NetworkService<ComponentBlock<C>, S, H>>,
         dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
+        keystore: keystore::KeyStorePtr,
     ) -> Box<dyn Future<Item = (), Error = ()> + Send>
     where
         H: network::ExHashT,
@@ -302,6 +304,7 @@ where
             client,
             network,
             dht_event_rx,
+			keystore,
         ))
     }
 }
