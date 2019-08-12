@@ -1,3 +1,19 @@
+// Copyright 2019 Parity Technologies (UK) Ltd.
+// This file is part of Substrate.
+
+// Substrate is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// Substrate is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
+
 #![warn(missing_docs)]
 
 //! Substrate validator discovery.
@@ -43,8 +59,9 @@ use sr_primitives::traits::Block;
 use sr_primitives::traits::ProvideRuntimeApi;
 use std::marker::PhantomData;
 use std::time::Duration;
+use std::collections::HashMap;
 
-// TODO: Needed?
+
 mod error;
 
 /// A ValidatorDiscovery makes a given validator discoverable as well as
@@ -104,12 +121,12 @@ where
             .client
             .runtime_api()
             .public_key(&id)
-            .map_err(|_x| Error::CallingRuntime)?
+            .map_err(Error::CallingRuntime)?
             .ok_or(Error::RetrievingPublicKey)?;
 
         let hashed_public_key =
             libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, pub_key.as_ref())
-                .expect("public key hashing not to fail");
+                .map_err(Error::HashingPublicKey)?;
 
         let addresses: Vec<libp2p::Multiaddr> = self
             .network
@@ -126,18 +143,17 @@ where
 
         let serialized_addresses = serde_json::to_string(&addresses)
             .map(|s| s.into_bytes())
-            .expect("enriched_address marshaling not to fail");
+            .map_err(Error::SerializingAddresses)?;
 
         let sig = self
             .client
             .runtime_api()
             .sign(&id, serialized_addresses)
-            .unwrap()
-            .unwrap();
+            .map_err(Error::CallingRuntime)?
+            .ok_or(Error::SigningDhtPayload)?;
 
-        // TODO: Could sig also derive serialize instead of `as_ref().to_vec()`?
         let payload =
-            serde_json::to_string(&(addresses, sig)).expect("payload marshaling not to fail");
+            serde_json::to_string(&(addresses, sig)).map_err(Error::SerializingDhtPayload)?;
 
         self.network
             .put_value(hashed_public_key, payload.into_bytes());
@@ -145,24 +161,30 @@ where
         Ok(())
     }
 
-    fn request_addresses_of_others(&mut self) {
+    fn request_addresses_of_others(&mut self) -> Result<()> {
         let id = BlockId::hash(self.client.info().best_hash);
-        let authorities = self.client.runtime_api().authorities(&id).unwrap();
+        let authorities = self
+            .client
+            .runtime_api()
+            .authorities(&id)
+            .map_err(Error::CallingRuntime)?;
 
         for authority in authorities.iter() {
             let hashed_public_key =
                 libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, authority.as_ref())
-                    .expect("public key hashing not to fail");
+                    .map_err(Error::HashingPublicKey)?;
 
             self.network.get_value(&hashed_public_key.clone());
         }
+
+        Ok(())
     }
 
-    fn handle_dht_events(&mut self) {
+    fn handle_dht_events(&mut self) -> Result<()> {
         while let Ok(Async::Ready(Some(event))) = self.dht_event_rx.poll() {
             match event {
                 DhtEvent::ValueFound(v) => {
-                    self.handle_dht_value_found_event(v);
+                    self.handle_dht_value_found_event(v)?;
                 }
                 // TODO: We should log this!?
                 DhtEvent::ValueNotFound(_hash) => println!("Did not find a value"),
@@ -171,78 +193,66 @@ where
                 DhtEvent::ValuePutFailed(_hash) => println!("put failed"),
             }
         }
+
+        Ok(())
     }
 
     fn handle_dht_value_found_event(
         &mut self,
         values: Vec<(libp2p::multihash::Multihash, Vec<u8>)>,
-    ) {
+    ) -> Result<()> {
         let id = BlockId::hash(self.client.info().best_hash);
-        let authorities = self.client.runtime_api().authorities(&id);
 
-        let valid_authority = |a: &libp2p::multihash::Multihash| -> Option<AuthorityId> {
-            match &authorities {
-                Ok(authorities) => {
-                    for authority in authorities.iter() {
-                        let hashed_public_key = libp2p::multihash::encode(
-                            libp2p::multihash::Hash::SHA2256,
-                            authority.to_string().as_bytes(),
-                        )
-                        .expect("public key hashing not to fail");
-
-                        // TODO: Comparing two pointers is safe, right? Given they are not fat-pointers.
-                        if a == &hashed_public_key {
-                            return Some(authority.clone());
-                        }
-                    }
-                }
-                // TODO: Should we handle the error here?
-                Err(_e) => {}
-            }
-
-            return None;
-        };
+        // From the Dht we only get the hashed public key of an authority. In
+        // order to retrieve the actual public key and to ensure it is actually
+        // an authority, we match the hash against the hash of the public keys
+        // of all other authorities.
+        let authorities = self.client.runtime_api().authorities(&id)?;
+        let authorities: HashMap<libp2p::multihash::Multihash, AuthorityId> =
+            authorities
+                .into_iter()
+                .map(|a| {
+                    libp2p::multihash::encode(
+                        libp2p::multihash::Hash::SHA2256,
+                        a.to_string().as_bytes(),
+                    )
+                    .map(|h| (h, a))
+                    .map_err(Error::HashingPublicKey)
+                })
+            .collect::<Result<HashMap<libp2p::multihash::Multihash, AuthorityId>>>()?;
 
         for (key, value) in values.iter() {
-            // TODO: Should we log if it is not a valid one?
-            if let Some(authority_pub_key) = valid_authority(key) {
-                println!("===== adding other node");
+            let authority_pub_key: &AuthorityId = authorities
+                .get(key)
+                .ok_or(Error::MatchingHashedPublicKeyWithPublicKey)?;
 
-                let (addresses, sig): (Vec<libp2p::Multiaddr>, Vec<u8>) =
-                    serde_json::from_slice(value).expect("payload unmarshaling not to fail");
+            let (addresses, sig): (Vec<libp2p::Multiaddr>, Vec<u8>) =
+                serde_json::from_slice(value).map_err(Error::DeserializingDhtPayload)?;
 
-                let serialized_addresses = serde_json::to_string(&addresses)
-                    .map(|s| s.into_bytes())
-                    .expect("address marshaling not to fail");
+            let serialized_addresses = serde_json::to_string(&addresses)
+                .map(|s| s.into_bytes())
+                .map_err(Error::SerializingAddresses)?;
 
-                let authority_pub_key: AuthorityId = authority_pub_key;
+            let is_verified = self
+                .client
+                .runtime_api()
+                .verify(&id, serialized_addresses, sig, authority_pub_key.clone())
+                .map_err(Error::CallingRuntime)?;
 
-                let valid = self
-                    .client
-                    .runtime_api()
-                    .verify(
-                        // TODO: Should we only get the id once?
-                        &BlockId::hash(self.client.info().best_hash),
-                        serialized_addresses,
-                        sig,
-                        authority_pub_key,
-                    )
-                    .expect("verify api call not to fail");
-
-                // TODO: is using verify-weak a problem here?
-                if valid {
-                    for address in addresses.iter() {
-                        // TODO: Why does add_reserved_peer take a string?
-                        // TODO: Remove unwrap.
-                        self.network
-                            .add_reserved_peer(address.to_string())
-                            .expect("adding reserved peer not to fail");
-                    }
-                } else {
-                    println!("==== Did not find a match for the key");
+            if is_verified {
+                for address in addresses.iter() {
+                    // TODO: Why does add_reserved_peer take a string?
+                    // TODO: Don't add as reserved peer, but as priority group.
+                    self.network
+                        .add_reserved_peer(address.to_string())
+                        .map_err(Error::AddingReservedPeer)?;
                 }
+            } else {
+                return Err(Error::VerifyingDhtPayload);
             }
         }
+
+        Ok(())
     }
 }
 
@@ -265,10 +275,10 @@ where
             while let Ok(Async::Ready(_)) = self.interval.poll() {
                 self.publish_own_ext_addresses()?;
 
-                self.request_addresses_of_others();
+                self.request_addresses_of_others()?;
             }
 
-            self.handle_dht_events();
+            self.handle_dht_events()?;
 
             Ok(())
         };
