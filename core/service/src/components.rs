@@ -1,4 +1,4 @@
-// Copyright 2017-2019 Parity Technologies (UK) Ltd.
+// Copyright 2019 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
 // Substrate is free software: you can redistribute it and/or modify
@@ -409,7 +409,8 @@ pub trait ServiceFactory: 'static + Sized {
     type AuthorityId: primitives::crypto::Public
         + std::hash::Hash
         + codec::Codec
-        + std::string::ToString;
+        + std::string::ToString
+        + std::fmt::Debug;
 
     //TODO: replace these with a constructor trait. that TransactionPool implements. (#1242)
     /// Extrinsic pool constructor for the full client.

@@ -29,12 +29,10 @@ pub enum Error {
     SerializingDhtPayload(serde_json::Error),
     SerializingAddresses(serde_json::Error),
     DeserializingDhtPayload(serde_json::Error),
-    // TODO: This should go away once we add priority nodes instead of reserved
-    // nodes.
-    AddingReservedPeer(String),
     // From the Dht we only get the hashed public key of an authority. In
     // order to retrieve the actual public key and to ensure it is actually
     // an authority, we match the hash against the hash of the public keys
     // of all other authorities. This error is the result of the above failing.
     MatchingHashedPublicKeyWithPublicKey,
+    SettingPeersetPriorityGroup(String)
 }

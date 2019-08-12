@@ -45,8 +45,6 @@
 //!    4. Adds the retrieved external addresses as priority nodes to the
 //!    peerset.
 
-use std::sync::Arc;
-
 use client::blockchain::HeaderBackend;
 use consensus_common_primitives::ImOnlineApi;
 use error::{Error, Result};
@@ -55,12 +53,12 @@ use log::error;
 use network::specialization::NetworkSpecialization;
 use network::{DhtEvent, ExHashT, NetworkStateInfo};
 use sr_primitives::generic::BlockId;
-use sr_primitives::traits::Block;
-use sr_primitives::traits::ProvideRuntimeApi;
+use sr_primitives::traits::{Block, ProvideRuntimeApi};
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::Duration;
-use std::collections::HashMap;
-
 
 mod error;
 
@@ -71,19 +69,31 @@ where
     B: Block + 'static,
     S: NetworkSpecialization<B>,
     H: ExHashT,
-    AuthorityId:
-        std::string::ToString + codec::Codec + std::convert::AsRef<[u8]> + std::clone::Clone,
+    AuthorityId: std::string::ToString
+        + codec::Codec
+        + std::convert::AsRef<[u8]>
+        + std::clone::Clone
+        + std::fmt::Debug
+        + std::hash::Hash
+        + std::cmp::Eq,
     Client: ProvideRuntimeApi + Send + Sync + 'static + HeaderBackend<B>,
     <Client as ProvideRuntimeApi>::Api: ImOnlineApi<B, AuthorityId>,
 {
     client: Arc<Client>,
 
     network: Arc<network::NetworkService<B, S, H>>,
+    /// Channel we receive Dht events on.
     dht_event_rx: UnboundedReceiver<DhtEvent>,
 
     /// Interval to be proactive on, e.g. publishing own addresses or starting
     /// to query for addresses.
     interval: tokio_timer::Interval,
+
+    /// The network peerset interface for priority groups lets us only set an
+    /// entire group, but we retrieve the addresses of other authorities one by
+    /// one from the network. To use the peerset interface we need to cache the
+    /// addresses and always overwrite the entire peerset priority group.
+    address_cache: HashMap<AuthorityId, Vec<libp2p::Multiaddr>>,
 
     phantom_authority_id: PhantomData<AuthorityId>,
 }
@@ -93,8 +103,13 @@ where
     B: Block + 'static,
     S: NetworkSpecialization<B>,
     H: ExHashT,
-    AuthorityId:
-        std::string::ToString + codec::Codec + std::convert::AsRef<[u8]> + std::clone::Clone,
+    AuthorityId: std::string::ToString
+        + codec::Codec
+        + std::convert::AsRef<[u8]>
+        + std::clone::Clone
+        + std::fmt::Debug
+        + std::hash::Hash
+        + std::cmp::Eq,
     Client: ProvideRuntimeApi + Send + Sync + 'static + HeaderBackend<B>,
     <Client as ProvideRuntimeApi>::Api: ImOnlineApi<B, AuthorityId>,
 {
@@ -105,12 +120,14 @@ where
         dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
     ) -> ValidatorDiscovery<AuthorityId, Client, B, S, H> {
         let interval = tokio_timer::Interval::new_interval(Duration::from_secs(5));
+        let address_cache = HashMap::new();
 
         ValidatorDiscovery {
             client,
             network,
             dht_event_rx,
             interval,
+            address_cache,
             phantom_authority_id: PhantomData,
         }
     }
@@ -124,7 +141,7 @@ where
             .map_err(Error::CallingRuntime)?
             .ok_or(Error::RetrievingPublicKey)?;
 
-        let hashed_public_key =
+        let hashed_pub_key =
             libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, pub_key.as_ref())
                 .map_err(Error::HashingPublicKey)?;
 
@@ -155,8 +172,7 @@ where
         let payload =
             serde_json::to_string(&(addresses, sig)).map_err(Error::SerializingDhtPayload)?;
 
-        self.network
-            .put_value(hashed_public_key, payload.into_bytes());
+        self.network.put_value(hashed_pub_key, payload.into_bytes());
 
         Ok(())
     }
@@ -208,17 +224,14 @@ where
         // an authority, we match the hash against the hash of the public keys
         // of all other authorities.
         let authorities = self.client.runtime_api().authorities(&id)?;
-        let authorities: HashMap<libp2p::multihash::Multihash, AuthorityId> =
-            authorities
-                .into_iter()
-                .map(|a| {
-                    libp2p::multihash::encode(
-                        libp2p::multihash::Hash::SHA2256,
-                        a.to_string().as_bytes(),
-                    )
+        self.purge_old_authorities_from_cache(&authorities);
+        let authorities: HashMap<libp2p::multihash::Multihash, AuthorityId> = authorities
+            .into_iter()
+            .map(|a| {
+                libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, a.as_ref())
                     .map(|h| (h, a))
                     .map_err(Error::HashingPublicKey)
-                })
+            })
             .collect::<Result<HashMap<libp2p::multihash::Multihash, AuthorityId>>>()?;
 
         for (key, value) in values.iter() {
@@ -240,19 +253,31 @@ where
                 .map_err(Error::CallingRuntime)?;
 
             if is_verified {
-                for address in addresses.iter() {
-                    // TODO: Why does add_reserved_peer take a string?
-                    // TODO: Don't add as reserved peer, but as priority group.
-                    self.network
-                        .add_reserved_peer(address.to_string())
-                        .map_err(Error::AddingReservedPeer)?;
-                }
+                self.address_cache
+                    .insert(authority_pub_key.clone(), addresses);
             } else {
                 return Err(Error::VerifyingDhtPayload);
             }
         }
 
+        let addresses = HashSet::from_iter(
+            self.address_cache
+                .iter()
+                .map(|(_peer_id, addresses)| addresses.clone())
+                .flatten(),
+        );
+
+        // TODO: Should probably be called "authorities".
+        self.network
+            .set_priority_group("validators".to_string(), addresses)
+            .map_err(Error::SettingPeersetPriorityGroup)?;
+
         Ok(())
+    }
+
+    fn purge_old_authorities_from_cache(&mut self, authorities: &Vec<AuthorityId>) {
+        self.address_cache
+            .retain(|peer_id, _addresses| authorities.contains(peer_id))
     }
 }
 
@@ -262,8 +287,13 @@ where
     B: Block + 'static,
     S: NetworkSpecialization<B>,
     H: ExHashT,
-    AuthorityId:
-        std::string::ToString + codec::Codec + std::convert::AsRef<[u8]> + std::clone::Clone,
+    AuthorityId: std::string::ToString
+        + codec::Codec
+        + std::convert::AsRef<[u8]>
+        + std::clone::Clone
+        + std::fmt::Debug
+        + std::hash::Hash
+        + std::cmp::Eq,
     Client: ProvideRuntimeApi + Send + Sync + 'static + HeaderBackend<B>,
     <Client as ProvideRuntimeApi>::Api: ImOnlineApi<B, AuthorityId>,
 {
