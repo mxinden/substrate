@@ -569,7 +569,7 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl consensus_primitives::ImOnlineApi<Block, im_online::AuthorityId, im_online::AuthoritySignature> for Runtime {
+	impl consensus_primitives::ImOnlineApi<Block, im_online::AuthorityId> for Runtime {
 		fn public_key() -> Option<im_online::AuthorityId> {
 			ImOnline::public_key()
 		}

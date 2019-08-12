@@ -385,7 +385,6 @@ impl<Components: components::Components> Service<Components> {
 			client.clone(),
 			network.clone(),
 			dht_event_rx,
-			keystore.clone(),
 		);
 		let _ = to_spawn_tx.unbounded_send(validator_discovery);
 
@@ -998,7 +997,6 @@ macro_rules! construct_service_factory {
 				{ $( $select_chain_init:tt )* },
 			FinalityProofProvider = { $( $finality_proof_provider_init:tt )* },
 			AuthorityId = $authority_id:ty,
-			Signature= $signature:ty,
 		}
 	) => {
 		$( #[$attr] )*
@@ -1020,7 +1018,6 @@ macro_rules! construct_service_factory {
 			type LightImportQueue = $light_import_queue;
 			type SelectChain = $select_chain;
  			type AuthorityId = $authority_id;
- 			type Signature = $signature;
 
 			fn build_full_transaction_pool(
 				config: $crate::TransactionPoolOptions,

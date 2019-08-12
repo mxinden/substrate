@@ -22,7 +22,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use babe::{import_queue, start_babe, BabeImportQueue, Config};
-use babe_primitives::AuthorityId;
 use client::{self, LongestChain};
 use grandpa::{self, FinalityProofProvider as GrandpaFinalityProofProvider};
 use node_executor;
@@ -244,7 +243,6 @@ construct_service_factory! {
 			Ok(Some(Arc::new(GrandpaFinalityProofProvider::new(client.clone(), client)) as _))
 		}},
 		AuthorityId = im_online::AuthorityId,
-		Signature= im_online::AuthoritySignature,
 	}
 }
 

@@ -237,6 +237,7 @@ impl<T: Trait> Module<T> {
 		let mut local_keys = app::Public::all();
 		local_keys.sort();
 
+		// TODO: authority_index is not needed, refactor!
 		for (_authority_index, key) in authorities.into_iter()
 			.enumerate()
 			.filter_map(|(index, authority)| {
