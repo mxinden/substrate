@@ -254,7 +254,7 @@ impl<T: Trait> Module<T> {
 		Keys::get()
 	}
 
-	pub fn sign(payload: Vec<u8>) -> Option<AuthoritySignature> {
+	pub fn sign(payload: Vec<u8>) -> Option<Vec<u8>> {
 		let authorities = Keys::get();
 		let mut local_keys = app::Public::all();
 		local_keys.sort();
@@ -268,14 +268,18 @@ impl<T: Trait> Module<T> {
 			})
 		{
 
-			return key.sign(&payload)
+			return key.sign(&payload).map(|s| s.encode())
 		}
 
 		return None
 	}
 
-	pub fn verify(payload: Vec<u8>, signature: AuthoritySignature, public_key: AuthorityId) -> bool {
-		public_key.verify(&payload, &signature)
+	pub fn verify(payload: Vec<u8>, signature: Vec<u8>, public_key: AuthorityId) -> bool {
+		let sig: Result<AuthoritySignature, _> = Decode::decode(&mut &signature[..]);
+		match sig {
+			Ok(sig) => public_key.verify(&payload, &sig),
+			Err(_e) => false,
+		}
 	}
 
 	fn offchain(now: T::BlockNumber) {

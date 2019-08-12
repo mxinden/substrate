@@ -577,11 +577,11 @@ impl_runtime_apis! {
 			ImOnline::authorities()
 		}
 
-		fn sign(payload: Vec<u8>) -> Option<im_online::AuthoritySignature> {
+		fn sign(payload: Vec<u8>) -> Option<Vec<u8>> {
 			ImOnline::sign(payload)
 		}
 
-		fn verify(payload: Vec<u8>, signature: im_online::AuthoritySignature, public_key: im_online::AuthorityId) -> bool {
+		fn verify(payload: Vec<u8>, signature: Vec<u8>, public_key: im_online::AuthorityId) -> bool {
 			ImOnline::verify(payload, signature, public_key)
 		}
 	}

@@ -290,6 +290,7 @@ where
     ComponentClient<C>: ProvideRuntimeApi,
 <ComponentClient<C> as ProvideRuntimeApi>::Api:
 ImOnlineApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::AuthorityId, <C::Factory as ServiceFactory>::Signature>,
+// <<C as Components>::Factory as ServiceFactory>::Signature: std::convert::From<std::vec::Vec<u8>>,
 {
     fn validator_discovery<H, S>(
         client: Arc<ComponentClient<C>>,

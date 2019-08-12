@@ -32,7 +32,7 @@ decl_runtime_apis! {
 	pub trait ImOnlineApi<AuthorityId: Codec, Signature: Codec> {
 		fn public_key() -> Option<AuthorityId>;
 		fn authorities() -> Vec<AuthorityId>;
-		fn sign(payload: Vec<u8>) -> Option<Signature>;
-		fn verify(payload: Vec<u8>, signature: Signature, public_key: AuthorityId) -> bool;
+		fn sign(payload: Vec<u8>) -> Option<Vec<u8>>;
+		fn verify(payload: Vec<u8>, signature: Vec<u8>, public_key: AuthorityId) -> bool;
 	}
 }
