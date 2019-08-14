@@ -107,3 +107,120 @@ impl<T: Trait> session::OneSessionHandler<T::AccountId> for Module<T> {
         // ignore
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use primitives::{Blake2Hasher, H256};
+    use sr_io::{with_externalities, TestExternalities};
+    use session::SessionIndex;
+    use sr_primitives::testing::{Header, UintAuthorityId};
+    use sr_primitives::traits::ConvertInto;
+    use sr_primitives::traits::IdentityLookup;
+    use sr_primitives::traits::OpaqueKeys;
+    use sr_primitives::Perbill;
+    use srml_support::{impl_outer_origin, parameter_types};
+    use std::collections::HashSet;
+
+    type AuthorityDiscovery = Module<Test>;
+
+    #[derive(Clone, Eq, PartialEq)]
+    pub struct Test;
+
+    impl Trait for Test {}
+
+    pub struct TestOnSessionEnding;
+    impl session::OnSessionEnding<im_online::AuthorityId> for TestOnSessionEnding {
+        fn on_session_ending(
+            _: SessionIndex,
+            _: SessionIndex,
+        ) -> Option<Vec<im_online::AuthorityId>> {
+            println!("inside 'on_session_ending'");
+            // if !TEST_SESSION_CHANGED.with(|l| *l.borrow()) {
+            //     Some(NEXT_VALIDATORS.with(|l| l.borrow().clone()))
+            // } else {
+            //     None
+            // }
+            None
+        }
+    }
+
+    impl session::Trait for Test {
+        type OnSessionEnding = TestOnSessionEnding;
+        type Keys = UintAuthorityId;
+        type ShouldEndSession = session::PeriodicSessions<Period, Offset>;
+        type SessionHandler = TestSessionHandler;
+        type Event = ();
+        type ValidatorId = im_online::AuthorityId;
+        type ValidatorIdOf = ConvertInto;
+        type SelectInitialValidators = ();
+    }
+
+    parameter_types! {
+        pub const Period: BlockNumber = 1;
+        pub const Offset: BlockNumber = 0;
+        pub const UncleGenerations: u64 = 0;
+        pub const BlockHashCount: u64 = 250;
+        pub const MaximumBlockWeight: u32 = 1024;
+        pub const MaximumBlockLength: u32 = 2 * 1024;
+        pub const AvailableBlockRatio: Perbill = Perbill::one();
+    }
+
+    pub type BlockNumber = u64;
+
+    impl system::Trait for Test {
+        type Origin = Origin;
+        type Index = u64;
+        type BlockNumber = BlockNumber;
+        type Call = ();
+        type Hash = H256;
+        type Hashing = ::sr_primitives::traits::BlakeTwo256;
+        type AccountId = im_online::AuthorityId;
+        type Lookup = IdentityLookup<Self::AccountId>;
+        type Header = Header;
+        type WeightMultiplierUpdate = ();
+        type Event = ();
+        type BlockHashCount = BlockHashCount;
+        type MaximumBlockWeight = MaximumBlockWeight;
+        type AvailableBlockRatio = AvailableBlockRatio;
+        type MaximumBlockLength = MaximumBlockLength;
+    }
+
+    impl_outer_origin! {
+        pub enum Origin for Test {}
+    }
+
+    pub struct TestSessionHandler;
+    impl session::SessionHandler<im_online::AuthorityId> for TestSessionHandler {
+        fn on_new_session<Ks: OpaqueKeys>(
+            _changed: bool,
+            validators: &[(im_online::AuthorityId, Ks)],
+            _queued_validators: &[(im_online::AuthorityId, Ks)],
+        ) {
+            println!("inside on_new_session");
+            // SESSION.with(|x|
+            // 			 *x.borrow_mut() = (validators.iter().map(|x| x.0.clone()).collect(), HashSet::new())
+            // );
+        }
+
+        fn on_disabled(validator_index: usize) {
+            println!("inside on_disabled");
+            // SESSION.with(|d| {
+            // 	let mut d = d.borrow_mut();
+            // 	let value = d.0[validator_index];
+            // 	d.1.insert(value);
+            // })
+        }
+    }
+
+    #[test]
+    fn returns_authority_key() {
+        let t = system::GenesisConfig::default()
+            .build_storage::<Test>()
+            .unwrap();
+
+        with_externalities(&mut TestExternalities::new(t), || {
+            AuthorityDiscovery::public_key();
+        });
+    }
+}
