@@ -15,7 +15,6 @@
 // along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
 
 #![warn(missing_docs)]
-
 // TODO: Should maybe be called authority discovery.
 //! Substrate authority discovery.
 //!
@@ -46,13 +45,14 @@
 //!    4. Adds the retrieved external addresses as priority nodes to the
 //!    peerset.
 
-use client::blockchain::HeaderBackend;
 use authority_discovery_primitives::AuthorityDiscoveryApi;
+use client::blockchain::HeaderBackend;
 use error::{Error, Result};
 use futures::{prelude::*, sync::mpsc::UnboundedReceiver};
 use log::error;
 use network::specialization::NetworkSpecialization;
 use network::{DhtEvent, ExHashT, NetworkStateInfo};
+use protobuf::core::Message;
 use sr_primitives::generic::BlockId;
 use sr_primitives::traits::{Block, ProvideRuntimeApi};
 use std::collections::{HashMap, HashSet};
@@ -62,6 +62,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod error;
+mod serialization;
 
 /// A AuthorityDiscovery makes a given authority discoverable as well as
 /// discovers other authoritys.
@@ -146,22 +147,23 @@ where
             libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, pub_key.as_ref())
                 .map_err(Error::HashingPublicKey)?;
 
-        let addresses: Vec<libp2p::Multiaddr> = self
+        let addresses = self
             .network
             .external_addresses()
-            .iter()
+            .into_iter()
             .map(|a| {
-                let mut a = a.clone();
                 a.push(libp2p::core::multiaddr::Protocol::P2p(
                     self.network.peer_id().into(),
                 ));
                 a
             })
+            .map(|a| a.to_string())
             .collect();
 
-        let serialized_addresses = serde_json::to_string(&addresses)
-            .map(|s| s.into_bytes())
-            .map_err(Error::SerializingAddresses)?;
+        let serialized_addresses = serialization::AuthorityAddresses::new();
+        let serialized_addresses = serialized_addresses
+            .set_addresses(addresses)
+            .write_to_bytes();
 
         let sig = self
             .client
@@ -181,14 +183,16 @@ where
             .runtime_api()
             .verify(&id, serialized_addresses, sig, pub_key.clone())
             .map_err(Error::CallingRuntime)?;
-        if !is_verified{
+        if !is_verified {
             return Err(Error::MissmatchingPublicKeyAndSignature);
         }
 
-        let payload =
-            serde_json::to_string(&(addresses, sig)).map_err(Error::SerializingDhtPayload)?;
+        let signed_addresses = serialization::SignedAuthorityAddresses::new();
+        signed_addresses.set_addresses(serialized_addresses);
+        signed_addresses.set_signature(sig);
 
-        self.network.put_value(hashed_pub_key, payload.into_bytes());
+        self.network
+            .put_value(hashed_pub_key, signed_addresses.write_to_bytes());
 
         Ok(())
     }
@@ -256,25 +260,34 @@ where
                 .get(key)
                 .ok_or(Error::MatchingHashedPublicKeyWithPublicKey)?;
 
-            let (addresses, sig): (Vec<libp2p::Multiaddr>, Vec<u8>) =
-                serde_json::from_slice(value).map_err(Error::DeserializingDhtPayload)?;
-
-            let serialized_addresses = serde_json::to_string(&addresses)
-                .map(|s| s.into_bytes())
-                .map_err(Error::SerializingAddresses)?;
+            let signed_addresses =
+                protobuf::parse_from_bytes::<serialization::SignedAuthorityAddresses>(values)
+                    .unwrap();
 
             let is_verified = self
                 .client
                 .runtime_api()
-                .verify(&id, serialized_addresses, sig, authority_pub_key.clone())
+                .verify(
+                    &id,
+                    signed_addresses.get_addresses,
+                    signed_addresses.get_signature,
+                    authority_pub_key.clone(),
+                )
                 .map_err(Error::CallingRuntime)?;
 
-            if is_verified {
-                self.address_cache
-                    .insert(authority_pub_key.clone(), addresses);
-            } else {
+            if !is_verified {
                 return Err(Error::VerifyingDhtPayload);
             }
+
+            let addresses: Vec<libp2p::Multiaddr> = protobuf::parse_from_bytes::<
+                serialization::AuthorityAddresses,
+            >(signed_addresses.take_addresses)
+            .take_addresses()
+            .into_iter()
+            .map(|a| a.parse().unwrap())
+            .collect();
+            self.address_cache
+                .insert(authority_pub_key.clone(), addresses);
         }
 
         let addresses = HashSet::from_iter(
