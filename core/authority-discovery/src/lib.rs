@@ -170,6 +170,21 @@ where
             .map_err(Error::CallingRuntime)?
             .ok_or(Error::SigningDhtPayload)?;
 
+        // The authority-discovery runtime api does not guarantee atomicity in
+        // between calls. This can be problematic when the underlying
+        // cryptography key changes between a call to `public_key` and `sign`.
+        // In this scenario the retrieved public key does not correspond to the
+        // latter retrieved signature. Instead of allowing atomic operations one
+        // can make sure that pubic key and signature match in third step.
+        let is_verified = self
+            .client
+            .runtime_api()
+            .verify(&id, serialized_addresses, sig, pub_key.clone())
+            .map_err(Error::CallingRuntime)?;
+        if !is_verified{
+            return Err(Error::MissmatchingPublicKeyAndSignature);
+        }
+
         let payload =
             serde_json::to_string(&(addresses, sig)).map_err(Error::SerializingDhtPayload)?;
 

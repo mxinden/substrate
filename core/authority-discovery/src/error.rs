@@ -23,6 +23,14 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     RetrievingPublicKey,
     VerifyingDhtPayload,
+    /// The authority-discovery runtime api does not guarantee atomicity in
+    /// between calls. This can be problematic when the underlying cryptography
+    /// key changes between a call to `public_key` and `sign`. In this scenario
+    /// the retrieved public key does not correspond to the latter retrieved
+    /// signature. Instead of allowing atomic operations one can make sure that
+    /// pubic key and signature match in third step.
+    // TODO: How about having `sign` return the public key as well.
+    MissmatchingPublicKeyAndSignature,
     HashingPublicKey(libp2p::core::multiaddr::multihash::EncodeError),
     CallingRuntime(client::error::Error),
     SigningDhtPayload,
@@ -34,5 +42,5 @@ pub enum Error {
     // an authority, we match the hash against the hash of the public keys
     // of all other authorities. This error is the result of the above failing.
     MatchingHashedPublicKeyWithPublicKey,
-    SettingPeersetPriorityGroup(String)
+    SettingPeersetPriorityGroup(String),
 }
