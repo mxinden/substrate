@@ -27,6 +27,174 @@ use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 const _PROTOBUF_VERSION_CHECK: () = ::protobuf::VERSION_2_8_0;
 
 #[derive(PartialEq,Clone,Default)]
+pub struct AuthorityAddresses {
+    // message fields
+    pub addresses: ::protobuf::RepeatedField<::std::string::String>,
+    // special fields
+    pub unknown_fields: ::protobuf::UnknownFields,
+    pub cached_size: ::protobuf::CachedSize,
+}
+
+impl<'a> ::std::default::Default for &'a AuthorityAddresses {
+    fn default() -> &'a AuthorityAddresses {
+        <AuthorityAddresses as ::protobuf::Message>::default_instance()
+    }
+}
+
+impl AuthorityAddresses {
+    pub fn new() -> AuthorityAddresses {
+        ::std::default::Default::default()
+    }
+
+    // repeated string addresses = 1;
+
+
+    pub fn get_addresses(&self) -> &[::std::string::String] {
+        &self.addresses
+    }
+    pub fn clear_addresses(&mut self) {
+        self.addresses.clear();
+    }
+
+    // Param is passed by value, moved
+    pub fn set_addresses(&mut self, v: ::protobuf::RepeatedField<::std::string::String>) {
+        self.addresses = v;
+    }
+
+    // Mutable pointer to the field.
+    pub fn mut_addresses(&mut self) -> &mut ::protobuf::RepeatedField<::std::string::String> {
+        &mut self.addresses
+    }
+
+    // Take field
+    pub fn take_addresses(&mut self) -> ::protobuf::RepeatedField<::std::string::String> {
+        ::std::mem::replace(&mut self.addresses, ::protobuf::RepeatedField::new())
+    }
+}
+
+impl ::protobuf::Message for AuthorityAddresses {
+    fn is_initialized(&self) -> bool {
+        true
+    }
+
+    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
+        while !is.eof()? {
+            let (field_number, wire_type) = is.read_tag_unpack()?;
+            match field_number {
+                1 => {
+                    ::protobuf::rt::read_repeated_string_into(wire_type, is, &mut self.addresses)?;
+                },
+                _ => {
+                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
+                },
+            };
+        }
+        ::std::result::Result::Ok(())
+    }
+
+    // Compute sizes of nested messages
+    #[allow(unused_variables)]
+    fn compute_size(&self) -> u32 {
+        let mut my_size = 0;
+        for value in &self.addresses {
+            my_size += ::protobuf::rt::string_size(1, &value);
+        };
+        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
+        self.cached_size.set(my_size);
+        my_size
+    }
+
+    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
+        for v in &self.addresses {
+            os.write_string(1, &v)?;
+        };
+        os.write_unknown_fields(self.get_unknown_fields())?;
+        ::std::result::Result::Ok(())
+    }
+
+    fn get_cached_size(&self) -> u32 {
+        self.cached_size.get()
+    }
+
+    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
+        &self.unknown_fields
+    }
+
+    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
+        &mut self.unknown_fields
+    }
+
+    fn as_any(&self) -> &dyn (::std::any::Any) {
+        self as &dyn (::std::any::Any)
+    }
+    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
+        self as &mut dyn (::std::any::Any)
+    }
+    fn into_any(self: Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
+        self
+    }
+
+    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
+        Self::descriptor_static()
+    }
+
+    fn new() -> AuthorityAddresses {
+        AuthorityAddresses::new()
+    }
+
+    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
+        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
+        };
+        unsafe {
+            descriptor.get(|| {
+                let mut fields = ::std::vec::Vec::new();
+                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
+                    "addresses",
+                    |m: &AuthorityAddresses| { &m.addresses },
+                    |m: &mut AuthorityAddresses| { &mut m.addresses },
+                ));
+                ::protobuf::reflect::MessageDescriptor::new::<AuthorityAddresses>(
+                    "AuthorityAddresses",
+                    fields,
+                    file_descriptor_proto()
+                )
+            })
+        }
+    }
+
+    fn default_instance() -> &'static AuthorityAddresses {
+        static mut instance: ::protobuf::lazy::Lazy<AuthorityAddresses> = ::protobuf::lazy::Lazy {
+            lock: ::protobuf::lazy::ONCE_INIT,
+            ptr: 0 as *const AuthorityAddresses,
+        };
+        unsafe {
+            instance.get(AuthorityAddresses::new)
+        }
+    }
+}
+
+impl ::protobuf::Clear for AuthorityAddresses {
+    fn clear(&mut self) {
+        self.addresses.clear();
+        self.unknown_fields.clear();
+    }
+}
+
+impl ::std::fmt::Debug for AuthorityAddresses {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        ::protobuf::text_format::fmt(self, f)
+    }
+}
+
+impl ::protobuf::reflect::ProtobufValue for AuthorityAddresses {
+    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
+        ::protobuf::reflect::ProtobufValueRef::Message(self)
+    }
+}
+
+#[derive(PartialEq,Clone,Default)]
 pub struct SignedAuthorityAddresses {
     // message fields
     pub addresses: ::std::vec::Vec<u8>,
@@ -237,178 +405,10 @@ impl ::protobuf::reflect::ProtobufValue for SignedAuthorityAddresses {
     }
 }
 
-#[derive(PartialEq,Clone,Default)]
-pub struct AuthorityAddresses {
-    // message fields
-    pub addresses: ::protobuf::RepeatedField<::std::string::String>,
-    // special fields
-    pub unknown_fields: ::protobuf::UnknownFields,
-    pub cached_size: ::protobuf::CachedSize,
-}
-
-impl<'a> ::std::default::Default for &'a AuthorityAddresses {
-    fn default() -> &'a AuthorityAddresses {
-        <AuthorityAddresses as ::protobuf::Message>::default_instance()
-    }
-}
-
-impl AuthorityAddresses {
-    pub fn new() -> AuthorityAddresses {
-        ::std::default::Default::default()
-    }
-
-    // repeated string addresses = 1;
-
-
-    pub fn get_addresses(&self) -> &[::std::string::String] {
-        &self.addresses
-    }
-    pub fn clear_addresses(&mut self) {
-        self.addresses.clear();
-    }
-
-    // Param is passed by value, moved
-    pub fn set_addresses(&mut self, v: ::protobuf::RepeatedField<::std::string::String>) {
-        self.addresses = v;
-    }
-
-    // Mutable pointer to the field.
-    pub fn mut_addresses(&mut self) -> &mut ::protobuf::RepeatedField<::std::string::String> {
-        &mut self.addresses
-    }
-
-    // Take field
-    pub fn take_addresses(&mut self) -> ::protobuf::RepeatedField<::std::string::String> {
-        ::std::mem::replace(&mut self.addresses, ::protobuf::RepeatedField::new())
-    }
-}
-
-impl ::protobuf::Message for AuthorityAddresses {
-    fn is_initialized(&self) -> bool {
-        true
-    }
-
-    fn merge_from(&mut self, is: &mut ::protobuf::CodedInputStream) -> ::protobuf::ProtobufResult<()> {
-        while !is.eof()? {
-            let (field_number, wire_type) = is.read_tag_unpack()?;
-            match field_number {
-                1 => {
-                    ::protobuf::rt::read_repeated_string_into(wire_type, is, &mut self.addresses)?;
-                },
-                _ => {
-                    ::protobuf::rt::read_unknown_or_skip_group(field_number, wire_type, is, self.mut_unknown_fields())?;
-                },
-            };
-        }
-        ::std::result::Result::Ok(())
-    }
-
-    // Compute sizes of nested messages
-    #[allow(unused_variables)]
-    fn compute_size(&self) -> u32 {
-        let mut my_size = 0;
-        for value in &self.addresses {
-            my_size += ::protobuf::rt::string_size(1, &value);
-        };
-        my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
-        self.cached_size.set(my_size);
-        my_size
-    }
-
-    fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        for v in &self.addresses {
-            os.write_string(1, &v)?;
-        };
-        os.write_unknown_fields(self.get_unknown_fields())?;
-        ::std::result::Result::Ok(())
-    }
-
-    fn get_cached_size(&self) -> u32 {
-        self.cached_size.get()
-    }
-
-    fn get_unknown_fields(&self) -> &::protobuf::UnknownFields {
-        &self.unknown_fields
-    }
-
-    fn mut_unknown_fields(&mut self) -> &mut ::protobuf::UnknownFields {
-        &mut self.unknown_fields
-    }
-
-    fn as_any(&self) -> &dyn (::std::any::Any) {
-        self as &dyn (::std::any::Any)
-    }
-    fn as_any_mut(&mut self) -> &mut dyn (::std::any::Any) {
-        self as &mut dyn (::std::any::Any)
-    }
-    fn into_any(self: Box<Self>) -> ::std::boxed::Box<dyn (::std::any::Any)> {
-        self
-    }
-
-    fn descriptor(&self) -> &'static ::protobuf::reflect::MessageDescriptor {
-        Self::descriptor_static()
-    }
-
-    fn new() -> AuthorityAddresses {
-        AuthorityAddresses::new()
-    }
-
-    fn descriptor_static() -> &'static ::protobuf::reflect::MessageDescriptor {
-        static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
-            lock: ::protobuf::lazy::ONCE_INIT,
-            ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
-        };
-        unsafe {
-            descriptor.get(|| {
-                let mut fields = ::std::vec::Vec::new();
-                fields.push(::protobuf::reflect::accessor::make_repeated_field_accessor::<_, ::protobuf::types::ProtobufTypeString>(
-                    "addresses",
-                    |m: &AuthorityAddresses| { &m.addresses },
-                    |m: &mut AuthorityAddresses| { &mut m.addresses },
-                ));
-                ::protobuf::reflect::MessageDescriptor::new::<AuthorityAddresses>(
-                    "AuthorityAddresses",
-                    fields,
-                    file_descriptor_proto()
-                )
-            })
-        }
-    }
-
-    fn default_instance() -> &'static AuthorityAddresses {
-        static mut instance: ::protobuf::lazy::Lazy<AuthorityAddresses> = ::protobuf::lazy::Lazy {
-            lock: ::protobuf::lazy::ONCE_INIT,
-            ptr: 0 as *const AuthorityAddresses,
-        };
-        unsafe {
-            instance.get(AuthorityAddresses::new)
-        }
-    }
-}
-
-impl ::protobuf::Clear for AuthorityAddresses {
-    fn clear(&mut self) {
-        self.addresses.clear();
-        self.unknown_fields.clear();
-    }
-}
-
-impl ::std::fmt::Debug for AuthorityAddresses {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        ::protobuf::text_format::fmt(self, f)
-    }
-}
-
-impl ::protobuf::reflect::ProtobufValue for AuthorityAddresses {
-    fn as_ref(&self) -> ::protobuf::reflect::ProtobufValueRef {
-        ::protobuf::reflect::ProtobufValueRef::Message(self)
-    }
-}
-
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\tdht.proto\x12\0\"F\n\x18SignedAuthorityAddresses\x12\x13\n\taddresse\
-    s\x18\x01\x20\x01(\x0cB\0\x12\x13\n\tsignature\x18\x02\x20\x01(\x0cB\0:\
-    \0\"+\n\x12AuthorityAddresses\x12\x13\n\taddresses\x18\x01\x20\x03(\tB\0\
+    \n\tdht.proto\x12\0\"+\n\x12AuthorityAddresses\x12\x13\n\taddresses\x18\
+    \x01\x20\x03(\tB\0:\0\"F\n\x18SignedAuthorityAddresses\x12\x13\n\taddres\
+    ses\x18\x01\x20\x01(\x0cB\0\x12\x13\n\tsignature\x18\x02\x20\x01(\x0cB\0\
     :\0B\0b\x06proto3\
 ";
 

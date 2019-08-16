@@ -52,7 +52,7 @@ use futures::{prelude::*, sync::mpsc::UnboundedReceiver};
 use log::error;
 use network::specialization::NetworkSpecialization;
 use network::{DhtEvent, ExHashT, NetworkStateInfo};
-use protobuf::core::Message;
+use protobuf::Message;
 use sr_primitives::generic::BlockId;
 use sr_primitives::traits::{Block, ProvideRuntimeApi};
 use std::collections::{HashMap, HashSet};
@@ -94,7 +94,10 @@ where
     /// The network peerset interface for priority groups lets us only set an
     /// entire group, but we retrieve the addresses of other authorities one by
     /// one from the network. To use the peerset interface we need to cache the
-    /// addresses and always overwrite the entire peerset priority group.
+    /// addresses and always overwrite the entire peerset priority group. To
+    /// ensure this map doesn't grow indefinitely
+    /// `purge_old_authorities_from_cache` function is called each time we add a
+    /// new entry.
     address_cache: HashMap<AuthorityId, Vec<libp2p::Multiaddr>>,
 
     phantom_authority_id: PhantomData<AuthorityId>,
@@ -121,6 +124,8 @@ where
         network: Arc<network::NetworkService<B, S, H>>,
         dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
     ) -> AuthorityDiscovery<AuthorityId, Client, B, S, H> {
+        // TODO: 5 seconds is probably a bit spammy, figure out what Kademlias
+        // time to live for dht entries is and adjust accordingly.
         let interval = tokio_timer::Interval::new_interval(Duration::from_secs(5));
         let address_cache = HashMap::new();
 
@@ -136,22 +141,20 @@ where
 
     fn publish_own_ext_addresses(&mut self) -> Result<()> {
         let id = BlockId::hash(self.client.info().best_hash);
-        let pub_key = self
+
+        let authority_id = self
             .client
             .runtime_api()
+            // TODO: This api call should probably be called `authority_id` instead of `pulic_key`.
             .public_key(&id)
             .map_err(Error::CallingRuntime)?
             .ok_or(Error::RetrievingPublicKey)?;
-
-        let hashed_pub_key =
-            libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, pub_key.as_ref())
-                .map_err(Error::HashingPublicKey)?;
 
         let addresses = self
             .network
             .external_addresses()
             .into_iter()
-            .map(|a| {
+            .map(|mut a| {
                 a.push(libp2p::core::multiaddr::Protocol::P2p(
                     self.network.peer_id().into(),
                 ));
@@ -160,15 +163,16 @@ where
             .map(|a| a.to_string())
             .collect();
 
-        let serialized_addresses = serialization::AuthorityAddresses::new();
-        let serialized_addresses = serialized_addresses
-            .set_addresses(addresses)
-            .write_to_bytes();
+        let serialized_addresses = {
+            let mut a = serialization::AuthorityAddresses::new();
+            a.set_addresses(addresses);
+            a.write_to_bytes().unwrap()
+        };
 
         let sig = self
             .client
             .runtime_api()
-            .sign(&id, serialized_addresses)
+            .sign(&id, serialized_addresses.clone())
             .map_err(Error::CallingRuntime)?
             .ok_or(Error::SigningDhtPayload)?;
 
@@ -178,39 +182,46 @@ where
         // In this scenario the retrieved public key does not correspond to the
         // latter retrieved signature. Instead of allowing atomic operations one
         // can make sure that pubic key and signature match in third step.
+        // TODO: Why not have sign also return the public key?
         let is_verified = self
             .client
             .runtime_api()
-            .verify(&id, serialized_addresses, sig, pub_key.clone())
+            .verify(
+                &id,
+                serialized_addresses.clone(),
+                sig.clone(),
+                authority_id.clone(),
+            )
             .map_err(Error::CallingRuntime)?;
         if !is_verified {
             return Err(Error::MissmatchingPublicKeyAndSignature);
         }
 
-        let signed_addresses = serialization::SignedAuthorityAddresses::new();
-        signed_addresses.set_addresses(serialized_addresses);
-        signed_addresses.set_signature(sig);
+        let signed_addresses = {
+            let mut a = serialization::SignedAuthorityAddresses::new();
+            a.set_addresses(serialized_addresses);
+            a.set_signature(sig);
+            a.write_to_bytes().unwrap()
+        };
 
         self.network
-            .put_value(hashed_pub_key, signed_addresses.write_to_bytes());
+            .put_value(hash_authority_id(authority_id.as_ref())?, signed_addresses);
 
         Ok(())
     }
 
     fn request_addresses_of_others(&mut self) -> Result<()> {
         let id = BlockId::hash(self.client.info().best_hash);
+
         let authorities = self
             .client
             .runtime_api()
             .authorities(&id)
             .map_err(Error::CallingRuntime)?;
 
-        for authority in authorities.iter() {
-            let hashed_public_key =
-                libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, authority.as_ref())
-                    .map_err(Error::HashingPublicKey)?;
-
-            self.network.get_value(&hashed_public_key.clone());
+        for authority_id in authorities.iter() {
+            self.network
+                .get_value(&hash_authority_id(authority_id.as_ref())?);
         }
 
         Ok(())
@@ -246,31 +257,31 @@ where
         // of all other authorities.
         let authorities = self.client.runtime_api().authorities(&id)?;
         self.purge_old_authorities_from_cache(&authorities);
-        let authorities: HashMap<libp2p::multihash::Multihash, AuthorityId> = authorities
+
+        let authorities = authorities
             .into_iter()
-            .map(|a| {
-                libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, a.as_ref())
-                    .map(|h| (h, a))
-                    .map_err(Error::HashingPublicKey)
-            })
-            .collect::<Result<HashMap<libp2p::multihash::Multihash, AuthorityId>>>()?;
+            .map(|a| hash_authority_id(a.as_ref()).map(|h| (h, a)))
+            .collect::<Result<HashMap<_, _>>>()?;
 
         for (key, value) in values.iter() {
+            // Check if the event origins from an authority in the current
+            // authority set.
             let authority_pub_key: &AuthorityId = authorities
                 .get(key)
                 .ok_or(Error::MatchingHashedPublicKeyWithPublicKey)?;
 
-            let signed_addresses =
-                protobuf::parse_from_bytes::<serialization::SignedAuthorityAddresses>(values)
-                    .unwrap();
+            let mut signed_addresses = protobuf::parse_from_bytes::<
+                serialization::SignedAuthorityAddresses,
+            >(value.as_ref())
+            .unwrap();
 
             let is_verified = self
                 .client
                 .runtime_api()
                 .verify(
                     &id,
-                    signed_addresses.get_addresses,
-                    signed_addresses.get_signature,
+                    signed_addresses.get_addresses().to_vec(),
+                    signed_addresses.get_signature().to_vec(),
                     authority_pub_key.clone(),
                 )
                 .map_err(Error::CallingRuntime)?;
@@ -279,13 +290,16 @@ where
                 return Err(Error::VerifyingDhtPayload);
             }
 
-            let addresses: Vec<libp2p::Multiaddr> = protobuf::parse_from_bytes::<
-                serialization::AuthorityAddresses,
-            >(signed_addresses.take_addresses)
-            .take_addresses()
-            .into_iter()
-            .map(|a| a.parse().unwrap())
-            .collect();
+            let addresses: Vec<libp2p::Multiaddr> =
+                protobuf::parse_from_bytes::<serialization::AuthorityAddresses>(
+                    &signed_addresses.take_addresses(),
+                )
+                .map(|mut a| a.take_addresses())
+                .unwrap()
+                .into_iter()
+                .map(|a| a.parse().unwrap())
+                .collect();
+
             self.address_cache
                 .insert(authority_pub_key.clone(), addresses);
         }
@@ -297,7 +311,6 @@ where
                 .flatten(),
         );
 
-        // TODO: Should probably be called "authorities".
         self.network
             .set_priority_group("authorities".to_string(), addresses)
             .map_err(Error::SettingPeersetPriorityGroup)?;
@@ -352,4 +365,8 @@ where
         // with the same lifetime of the node itself.
         Ok(futures::Async::NotReady)
     }
+}
+
+fn hash_authority_id(id: &[u8]) -> Result<(libp2p::multihash::Multihash)> {
+    libp2p::multihash::encode(libp2p::multihash::Hash::SHA2256, id).map_err(Error::HashingPublicKey)
 }
