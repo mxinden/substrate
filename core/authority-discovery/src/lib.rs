@@ -15,7 +15,7 @@
 // along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
 
 #![warn(missing_docs)]
-// TODO: Should maybe be called authority discovery.
+
 //! Substrate authority discovery.
 //!
 //! This crate enables Substrate authorities to directly connect to other
@@ -52,6 +52,7 @@ use futures::{prelude::*, sync::mpsc::UnboundedReceiver};
 use log::error;
 use network::specialization::NetworkSpecialization;
 use network::{DhtEvent, ExHashT, NetworkStateInfo};
+// TODO: Use `prost` instead.
 use protobuf::Message;
 use sr_primitives::generic::BlockId;
 use sr_primitives::traits::{Block, ProvideRuntimeApi};
@@ -85,6 +86,8 @@ where
 
     network: Arc<network::NetworkService<B, S, H>>,
     /// Channel we receive Dht events on.
+    // TODO: Is unbounded the right thing to use here? There is no such thing as
+    // being unbounded. Should we prevent a memory leak?
     dht_event_rx: UnboundedReceiver<DhtEvent>,
 
     /// Interval to be proactive on, e.g. publishing own addresses or starting
@@ -166,7 +169,7 @@ where
         let serialized_addresses = {
             let mut a = serialization::AuthorityAddresses::new();
             a.set_addresses(addresses);
-            a.write_to_bytes().unwrap()
+            a.write_to_bytes().map_err(Error::Serializing)?
         };
 
         let sig = self
@@ -201,7 +204,7 @@ where
             let mut a = serialization::SignedAuthorityAddresses::new();
             a.set_addresses(serialized_addresses);
             a.set_signature(sig);
-            a.write_to_bytes().unwrap()
+            a.write_to_bytes().map_err(Error::Serializing)?
         };
 
         self.network
@@ -273,7 +276,7 @@ where
             let mut signed_addresses = protobuf::parse_from_bytes::<
                 serialization::SignedAuthorityAddresses,
             >(value.as_ref())
-            .unwrap();
+            .map_err(Error::Serializing)?;
 
             let is_verified = self
                 .client
@@ -295,14 +298,18 @@ where
                     &signed_addresses.take_addresses(),
                 )
                 .map(|mut a| a.take_addresses())
-                .unwrap()
+                .map_err(Error::Serializing)?
                 .into_iter()
-                .map(|a| a.parse().unwrap())
-                .collect();
+                .map(|a| a.parse())
+                .collect::<std::result::Result<_, _>>()
+                .map_err(Error::ParsingMultiaddress)?;
 
             self.address_cache
                 .insert(authority_pub_key.clone(), addresses);
         }
+
+        // Let's update the peerset priority group with the all the addresses we
+        // have in our cache.
 
         let addresses = HashSet::from_iter(
             self.address_cache

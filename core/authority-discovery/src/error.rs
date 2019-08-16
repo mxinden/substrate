@@ -40,4 +40,6 @@ pub enum Error {
     /// of all other authorities. This error is the result of the above failing.
     MatchingHashedPublicKeyWithPublicKey,
     SettingPeersetPriorityGroup(String),
+    Serializing(protobuf::ProtobufError),
+    ParsingMultiaddress(libp2p::core::multiaddr::Error),
 }
