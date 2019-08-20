@@ -49,7 +49,7 @@ use authority_discovery_primitives::AuthorityDiscoveryApi;
 use client::blockchain::HeaderBackend;
 use error::{Error, Result};
 use futures::{prelude::*, sync::mpsc::Receiver};
-use log::error;
+use log::{debug, error, log_enabled, warn};
 use network::specialization::NetworkSpecialization;
 use network::{DhtEvent, ExHashT, NetworkStateInfo};
 // TODO: Use `prost` instead.
@@ -232,13 +232,22 @@ where
 		while let Ok(Async::Ready(Some(event))) = self.dht_event_rx.poll() {
 			match event {
 				DhtEvent::ValueFound(v) => {
+					if log_enabled!(log::Level::Debug) {
+						let hashes = v.iter().map(|(hash, _value)| hash.clone());
+						debug!(target: "sub-authority-discovery", "Value for hash '{:?}' found on Dht.", hashes);
+					}
+
 					self.handle_dht_value_found_event(v)?;
 				}
-				// TODO: We should log this!?
-				DhtEvent::ValueNotFound(_hash) => println!("Did not find a value"),
-				DhtEvent::ValuePut(_hash) => println!("Succesfully put a value"),
-				// TODO: We should log this!?
-				DhtEvent::ValuePutFailed(_hash) => println!("put failed"),
+				DhtEvent::ValueNotFound(hash) => {
+					warn!(target: "sub-authority-discovery", "Value for hash '{:?}' not found on Dht.", hash)
+				}
+				DhtEvent::ValuePut(hash) => {
+					debug!(target: "sub-authority-discovery", "Successfully put hash '{:?}' on Dht.", hash)
+				}
+				DhtEvent::ValuePutFailed(hash) => {
+					warn!(target: "sub-authority-discovery", "Failed to put hash '{:?}' on Dht.", hash)
+				}
 			}
 		}
 
