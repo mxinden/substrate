@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+package authority_discovery;
+
 // First we need to serialize the addresses in order to be able to sign them.
 message AuthorityAddresses {
 	repeated string addresses = 1;

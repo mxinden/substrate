@@ -5,6 +5,9 @@ authors = ["Parity Technologies <admin@parity.io>"]
 edition = "2018"
 build = "build.rs"
 
+[build-dependencies]
+prost-build = "0.5"
+
 [dependencies]
 network = { package = "substrate-network", path = "../../core/network" }
 sr-primitives = { path = "../../core/sr-primitives" }
@@ -19,12 +22,5 @@ libp2p = { version = "0.11.0", default-features = false, features = ["secp256k1"
 serde_json = "1.0"
 log = "0.4"
 derive_more = "0.14.0"
-# TODO: Should we be using the same versionn as libp2p does?
-protobuf = "*"
-
-
-[build-dependencies]
-# TODO: add proper version.
-protobuf-codegen-pure = "*"
-
-[dev-dependencies]
+prost = "0.5"
+bytes = "0.4"

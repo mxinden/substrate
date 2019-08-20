@@ -39,7 +39,8 @@ pub enum Error {
     /// an authority, we match the hash against the hash of the public keys
     /// of all other authorities. This error is the result of the above failing.
     MatchingHashedPublicKeyWithPublicKey,
-    SettingPeersetPriorityGroup(String),
-    Serializing(protobuf::ProtobufError),
+	SettingPeersetPriorityGroup(String),
+	Encoding(prost::EncodeError),
+	Decoding(prost::DecodeError),
     ParsingMultiaddress(libp2p::core::multiaddr::Error),
 }

@@ -52,8 +52,7 @@ use futures::{prelude::*, sync::mpsc::Receiver};
 use log::{debug, error, log_enabled, warn};
 use network::specialization::NetworkSpecialization;
 use network::{DhtEvent, ExHashT, NetworkStateInfo};
-// TODO: Use `prost` instead.
-use protobuf::Message;
+use prost::Message;
 use sr_primitives::generic::BlockId;
 use sr_primitives::traits::{Block, ProvideRuntimeApi};
 use std::collections::{HashMap, HashSet};
@@ -63,7 +62,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod error;
-mod serialization;
+/// Dht payload schemas generated from Protobuf definitions via Prost crate in build.rs.
+mod schema {
+	include!(concat!(env!("OUT_DIR"), "/authority_discovery.rs"));
+}
 
 /// A AuthorityDiscovery makes a given authority discoverable as well as
 /// discovers other authoritys.
@@ -164,10 +166,12 @@ where
 			.map(|a| a.to_string())
 			.collect();
 
-		let serialized_addresses = {
-			let mut a = serialization::AuthorityAddresses::new();
-			a.set_addresses(addresses);
-			a.write_to_bytes().map_err(Error::Serializing)?
+		let mut serialized_addresses = vec![];
+		{
+			let mut a = schema::AuthorityAddresses::default();
+			a.addresses = addresses;
+			a.encode(&mut serialized_addresses)
+				.map_err(Error::Encoding)?;
 		};
 
 		let sig = self
@@ -198,11 +202,12 @@ where
 			return Err(Error::MissmatchingPublicKeyAndSignature);
 		}
 
-		let signed_addresses = {
-			let mut a = serialization::SignedAuthorityAddresses::new();
-			a.set_addresses(serialized_addresses);
-			a.set_signature(sig);
-			a.write_to_bytes().map_err(Error::Serializing)?
+		let mut signed_addresses = vec![];
+		{
+			let mut a = schema::SignedAuthorityAddresses::default();
+			a.addresses = serialized_addresses;
+			a.signature = sig;
+			a.encode(&mut signed_addresses).map_err(Error::Encoding)?;
 		};
 
 		self.network
@@ -280,18 +285,16 @@ where
 				.get(key)
 				.ok_or(Error::MatchingHashedPublicKeyWithPublicKey)?;
 
-			let mut signed_addresses = protobuf::parse_from_bytes::<
-				serialization::SignedAuthorityAddresses,
-			>(value.as_ref())
-			.map_err(Error::Serializing)?;
+			let signed_addresses =
+				schema::SignedAuthorityAddresses::decode(value).map_err(Error::Decoding)?;
 
 			let is_verified = self
 				.client
 				.runtime_api()
 				.verify(
 					&id,
-					signed_addresses.get_addresses().to_vec(),
-					signed_addresses.get_signature().to_vec(),
+					signed_addresses.addresses.clone(),
+					signed_addresses.signature.clone(),
 					authority_pub_key.clone(),
 				)
 				.map_err(Error::CallingRuntime)?;
@@ -300,15 +303,14 @@ where
 				return Err(Error::VerifyingDhtPayload);
 			}
 
-			let addresses: Vec<libp2p::Multiaddr> = protobuf::parse_from_bytes::<
-				serialization::AuthorityAddresses,
-			>(&signed_addresses.take_addresses())
-			.map(|mut a| a.take_addresses())
-			.map_err(Error::Serializing)?
-			.into_iter()
-			.map(|a| a.parse())
-			.collect::<std::result::Result<_, _>>()
-			.map_err(Error::ParsingMultiaddress)?;
+			let addresses: Vec<libp2p::Multiaddr> =
+				schema::AuthorityAddresses::decode(signed_addresses.addresses)
+					.map(|a| a.addresses)
+					.map_err(Error::Decoding)?
+					.into_iter()
+					.map(|a| a.parse())
+					.collect::<std::result::Result<_, _>>()
+					.map_err(Error::ParsingMultiaddress)?;
 
 			self.address_cache
 				.insert(authority_pub_key.clone(), addresses);
