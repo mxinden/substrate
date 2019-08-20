@@ -277,7 +277,7 @@ pub trait AuthorityDiscovery<C: Components> {
     fn authority_discovery<H, S>(
         client: Arc<ComponentClient<C>>,
         network: Arc<network::NetworkService<ComponentBlock<C>, S, H>>,
-        dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
+        dht_event_rx: futures::sync::mpsc::Receiver<DhtEvent>,
     ) -> Box<dyn Future<Item = (), Error = ()> + Send>
     where
         H: network::ExHashT,
@@ -293,7 +293,7 @@ AuthorityDiscoveryApi<ComponentBlock<C>, <C::Factory as ServiceFactory>::Authori
     fn authority_discovery<H, S>(
         client: Arc<ComponentClient<C>>,
         network: Arc<network::NetworkService<ComponentBlock<C>, S, H>>,
-        dht_event_rx: futures::sync::mpsc::UnboundedReceiver<DhtEvent>,
+        dht_event_rx: futures::sync::mpsc::Receiver<DhtEvent>,
     ) -> Box<dyn Future<Item = (), Error = ()> + Send>
     where
         H: network::ExHashT,

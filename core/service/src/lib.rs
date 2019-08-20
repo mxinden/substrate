@@ -391,8 +391,12 @@ impl<Components: components::Components> Service<Components> {
 		let rpc_handlers = gen_handler();
 		let rpc = start_rpc_servers(&config, gen_handler)?;
 
+		// Use bounded channel to ensure back-pressure. Authority discovery is
+		// triggering one event per authority within the current authority set. This
+		// estimates the authority set size to be somewhere below 10 000 thereby
+		// setting the channel buffer size to 10 000.
 		let (dht_event_tx, dht_event_rx) =
-			mpsc::unbounded::<DhtEvent>();
+			mpsc::channel::<DhtEvent>(10000);
 		let authority_discovery = Components::RuntimeServices::authority_discovery(
 			client.clone(),
 			network.clone(),
@@ -642,7 +646,7 @@ fn build_network_future<
 	status_sinks: Arc<Mutex<Vec<mpsc::UnboundedSender<(NetworkStatus<B>, NetworkState)>>>>,
 	rpc_rx: futures03::channel::mpsc::UnboundedReceiver<rpc::apis::system::Request<B>>,
 	should_have_peers: bool,
-	dht_events_tx: mpsc::UnboundedSender<DhtEvent>,
+	mut dht_events_tx: mpsc::Sender<DhtEvent>,
 ) -> impl Future<Item = (), Error = ()> {
 	// Compatibility shim while we're transitionning to stable Futures.
 	// See https://github.com/paritytech/substrate/issues/3099
@@ -721,7 +725,17 @@ fn build_network_future<
 		while let Ok(Async::Ready(Some(Event::Dht(event)))) = network.poll().map_err(|err| {
 			warn!(target: "service", "Error in network: {:?}", err);
 		}) {
-			dht_events_tx.unbounded_send(event.clone()).unwrap();
+			// Given that core/authority-discovery is the only upper stack consumer of Dht events at the moment, all Dht
+			// events are being passed on to the authority-discovery module. In the future there might be multiple
+			// consumers of these events. In that case this would need to be refactored to properly dispatch the events,
+			// e.g. via a subscriber model.
+			if let Err(e) = dht_events_tx.try_send(event) {
+				if e.is_full() {
+					warn!(target: "service", "Dht event channel to authority discovery is full, dropping event.");
+				} else if e.is_disconnected() {
+					warn!(target: "service", "Dht event channel to authority discovery is disconnected, dropping event.");
+				}
+			}
 		};
 
 		// Now some diagnostic for performances.
