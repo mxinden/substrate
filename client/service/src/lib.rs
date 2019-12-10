@@ -44,7 +44,7 @@ use futures03::{
 };
 use network::{
 	NetworkService, NetworkState, specialization::NetworkSpecialization,
-	Event, DhtEvent, PeerId, ReportHandle,
+	PeerId, ReportHandle,
 };
 use log::{log, warn, debug, error, Level};
 use codec::{Encode, Decode};
@@ -364,7 +364,6 @@ fn build_network_future<
 	status_sinks: Arc<Mutex<status_sinks::StatusSinks<(NetworkStatus<B>, NetworkState)>>>,
 	rpc_rx: futures03::channel::mpsc::UnboundedReceiver<rpc::system::Request<B>>,
 	should_have_peers: bool,
-	dht_event_tx: Option<mpsc::Sender<DhtEvent>>,
 ) -> impl Future<Item = (), Error = ()> {
 	// Compatibility shim while we're transitioning to stable Futures.
 	// See https://github.com/paritytech/substrate/issues/3099
