@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::iter;
 use std::time;
 use log::{trace, debug};
-use futures::channel::mpsc;
+use futures::{channel::mpsc, sink::SinkExt};
 use lru::LruCache;
 use libp2p::PeerId;
 use sp_runtime::traits::{Block as BlockT, Hash, HashFor};
@@ -233,7 +233,7 @@ pub trait Validator<B: BlockT>: Send + Sync {
 /// Consensus network protocol handler. Manages statements and candidate requests.
 pub struct ConsensusGossip<B: BlockT> {
 	peers: HashMap<PeerId, PeerConsensus<B::Hash>>,
-	live_message_sinks: HashMap<(ConsensusEngineId, B::Hash), Vec<mpsc::UnboundedSender<TopicNotification>>>,
+	live_message_sinks: HashMap<(ConsensusEngineId, B::Hash), Vec<mpsc::Sender<TopicNotification>>>,
 	messages: Vec<MessageEntry<B>>,
 	known_messages: LruCache<B::Hash, ()>,
 	validators: HashMap<ConsensusEngineId, Arc<dyn Validator<B>>>,
@@ -401,17 +401,18 @@ impl<B: BlockT> ConsensusGossip<B> {
 
 	/// Get data of valid, incoming messages for a topic (but might have expired meanwhile)
 	pub fn messages_for(&mut self, engine_id: ConsensusEngineId, topic: B::Hash)
-		-> mpsc::UnboundedReceiver<TopicNotification>
+		-> mpsc::Receiver<TopicNotification>
 	{
-		let (tx, rx) = mpsc::unbounded();
+		let (tx, rx) = mpsc::channel(self.messages.len());
 		for entry in self.messages.iter_mut()
 			.filter(|e| e.topic == topic && e.message.engine_id == engine_id)
 		{
-			tx.unbounded_send(TopicNotification {
+			// TODO: `start_send` might be a bit of a hack.
+			tx.start_send(TopicNotification {
 					message: entry.message.data.clone(),
 					sender: entry.sender.clone(),
 				})
-				.expect("receiver known to be live; qed");
+				.expect("channel initialized with needed capacity");
 		}
 
 		self.live_message_sinks.entry((engine_id, topic)).or_default().push(tx);
@@ -423,9 +424,9 @@ impl<B: BlockT> ConsensusGossip<B> {
 	/// already known, the message is old, its source peers isn't a registered peer or the connection
 	/// to them is broken. Return `Some(topic, message)` if it was added to the internal queue, `None`
 	/// in all other cases.
-	pub fn on_incoming(
+	pub async fn on_incoming(
 		&mut self,
-		protocol: &mut dyn Context<B>,
+		protocol: &mut (dyn Context<B> + Send),
 		who: PeerId,
 		messages: Vec<ConsensusMessage>,
 	) {
@@ -464,17 +465,27 @@ impl<B: BlockT> ConsensusGossip<B> {
 				protocol.report_peer(who.clone(), rep::GOSSIP_SUCCESS);
 				if let Some(ref mut peer) = self.peers.get_mut(&who) {
 					peer.known_messages.insert(message_hash);
+
 					if let Entry::Occupied(mut entry) = self.live_message_sinks.entry((engine_id, topic)) {
 						debug!(target: "gossip", "Pushing consensus message to sinks for {}.", topic);
-						entry.get_mut().retain(|sink| {
-							if let Err(e) = sink.unbounded_send(TopicNotification {
+
+						// Send msg into all sinks.
+						for sink in entry.get_mut() {
+							// TODO: `send` will also flush. Not a problem given that the channel doesn't buffer, right?
+							if let Err(e) = sink.send(TopicNotification {
 								message: message.data.clone(),
 								sender: Some(who.clone())
-							}) {
+							}).await {
 								trace!(target: "gossip", "Error broadcasting message notification: {:?}", e);
 							}
+						}
+
+						// Purge closed sinks.
+						entry.get_mut().retain(|sink| {
 							!sink.is_closed()
 						});
+
+						// Remove entry if no sinks are left.
 						if entry.get().is_empty() {
 							entry.remove_entry();
 						}

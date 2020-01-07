@@ -128,7 +128,7 @@ impl<B: BlockT> GossipEngine<B> {
 									Some(ConsensusMessage { engine_id: engine, data: data.to_vec() })
 								} else { None })
 								.collect()
-						);
+						).await;
 					},
 					Event::Dht(_) => {}
 				}
@@ -179,7 +179,7 @@ impl<B: BlockT> GossipEngine<B> {
 
 	/// Get data of valid, incoming messages for a topic (but might have expired meanwhile).
 	pub fn messages_for(&self, topic: B::Hash)
-		-> mpsc::UnboundedReceiver<TopicNotification>
+		-> mpsc::Receiver<TopicNotification>
 	{
 		self.inner.lock().state_machine.messages_for(self.engine_id, topic)
 	}
