@@ -20,7 +20,9 @@
 //!
 //! **Warning**: These APIs are not stable.
 
-use libp2p::{core::ConnectedPoint, Multiaddr};
+use crate::config::ProtocolId;
+
+use libp2p::{core::ConnectedPoint, Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use slog_derive::SerdeValue;
 use std::{collections::{HashMap, HashSet}, time::Duration};
@@ -49,6 +51,7 @@ pub struct NetworkState {
 	pub average_upload_per_sec: u64,
 	/// State of the peerset manager.
 	pub peerset: serde_json::Value,
+	pub kademlia_kbuckets: Vec<(String, Vec<Vec<(String, Vec<Multiaddr>)>>)>,
 }
 
 /// Part of the `NetworkState` struct. Unstable.

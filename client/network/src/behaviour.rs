@@ -139,6 +139,10 @@ impl<B: BlockT, H: ExHashT> Behaviour<B, H> {
 		self.discovery.add_known_address(peer_id, addr)
 	}
 
+	pub fn kbuckets(&mut self) -> Vec<(String, Vec<Vec<(String, Vec<Multiaddr>)>>)> {
+		self.discovery.kbuckets()
+	}
+
 	/// Returns the number of nodes that are in the Kademlia k-buckets.
 	pub fn num_kbuckets_entries(&mut self) -> impl ExactSizeIterator<Item = (&ProtocolId, usize)> {
 		self.discovery.num_kbuckets_entries()

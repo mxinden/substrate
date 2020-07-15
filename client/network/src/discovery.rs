@@ -295,6 +295,14 @@ impl DiscoveryBehaviour {
 		}
 	}
 
+	pub fn kbuckets(&mut self) -> Vec<(String, Vec<Vec<(String, Vec<Multiaddr>)>>)> {
+		self.kademlias
+			.iter_mut().map(|(id, kad)| (
+				String::from_utf8_lossy(id.as_bytes()).into_owned(),
+				kad.kbuckets().map(|bucket| bucket.iter().map(|entry| (format!("{:?}", entry.to_owned().node.key.into_preimage()), entry.to_owned().node.value.into_vec())).collect()).collect(),
+			)).collect()
+	}
+
 	/// Returns the number of nodes that are in the Kademlia k-buckets.
 	pub fn num_kbuckets_entries(&mut self) -> impl ExactSizeIterator<Item = (&ProtocolId, usize)> {
 		self.kademlias.iter_mut()
